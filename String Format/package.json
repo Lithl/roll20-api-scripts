@@ -1,0 +1,12 @@
+{
+  "name": "String Format",
+  "version": "1.0",
+  "description": "Formats a composite format string for fast formatting and concatenation.",
+  "authors": "Brian Shields",
+  "roll20userid": "235259",
+  "dependencies": {},
+  "modifies": {},
+  "conflicts": [
+    "none"
+  ]
+}
