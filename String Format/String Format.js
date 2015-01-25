@@ -300,7 +300,7 @@ bshields.format = (function() {
     function standardNumericFormat(number, format, precision) {
         var formatString, tmp;
         
-        number = parseInt(number, 10);
+        number = parseFloat(number, 10);
         precision = precision || getDefaultPrecision(format);
         
         formatString = '';
@@ -429,7 +429,101 @@ bshields.format = (function() {
     }
     
     function customNumericFormat(number, format) {
-        number = parseInt(number, 10);
+        var sections = format.split(';');
+        
+        number = parseFloat(number, 10);
+        _.each(sections, function(section, index) {
+            sections[index] = section.trim();
+        });
+        
+        if (sections.length === 1) {
+            customNumericFormatHelper(number, sections[0]);
+        } else if (sections.length === 2) {
+            customNumericFormatHelper(number, sections[number >= 0 ? 0 : 1], sections[0]);
+        } else if (sections.length === 3) {
+            if (number > 0) {
+                customNumericFormatHelper(number, sections[0], sections[2]);
+            } else if (number < 0) {
+                customNumericFormatHelper(number, sections[1] || sections[0], sections[2]);
+            } else {
+                customNumericFormatHelper(number, sections[2]);
+            }
+        }
+    }
+    
+    function customNumericFormatHelper(number, format, formatIfRoundToZero) {
+        var integerPart, fractionalPart, numberIsNotZero,
+            explicitDecimal = format.indexOf('.') >= 0,
+            decimalPlace = explicitDecimal ? format.indexOf('.') : format.length,
+            fmtIntegralPart = format.substring(0, decimalPlace),
+            fmtDecimalPart = (explicitDecimal ? format.substring(decimalPlace + 1) : '')
+                            .split(',').join('').split('.').join(''),
+            scalingSpecifier = 1,
+            explicitSeparator, separatorPlace,
+            isPercentage = format.indexOf('%') >= 0,
+            isPermille = format.indexOf('\u2030') >= 0,
+            isExponentNotation = /e[\+\-]?0+/i.test(format),
+            alwaysShowExponent = isExponentNotation ? /e\+0+/i.test(format) : false,
+            exponentPrecision = isExponentNotation ? format.replace(/^.*?e[\+\-]?(0+).*?$/i, '$1').length : -1;
+        
+        /**
+         * TODO: handle escaped characters
+         * # 0 . , % \u2030 E e + -
+         * All need to be considered as possible for escaping necessity
+         */
+        
+        // Split actual number into parts
+        number = parseFloat(number, 10);
+        numberIsNotZero = number !== 0;
+        integerPart = parseInt(number, 10);
+        if (number.toString().indexOf('.') >= 0) {
+            fractionalPart = number.toString().substring(number.toString().indexOf('.') + 1);
+        } else {
+            fractionalPart = '0';
+        }
+        fractionalPart = parseInt(fractionalPart, 10) / Math.pow(10, fractionalPart.length);
+        
+        // All decimals after the first are ignored
+        if (explicitDecimal) {
+            format = format.split('.');
+            format[0] += '.';
+            format = format.join('');
+        }
+        
+        // Consecutive commas before decimal are tallied for scaling then discarded
+        fmtIntegralPart = _.reduceRight(fmtIntegralPart.split(''), function(memo, chr) {
+            if (chr === ',' && !memo.integral) {
+                return { scale: memo.scale * 1000, integral: memo.integral };
+            } else {
+                return { scale: memo.scale, integral: chr + memo.integral };
+            }
+        }, { scale: 1, integral: '' });
+        scalingSpecifier = fmtIntegralPart.scale;
+        fmtIntegralPart = fmtIntegralPart.integral;
+        
+        // All grouping commas after the first are discarded
+        explicitSeparator = /(?:#|0),(?:#|0)/.test(fmtIntegralPart);
+        separatorPlace = explicitSeparator ? fmtIntegralPart.match(/(?:#|0),(?:#|0)/).index + 1 : -1;
+        if (explicitSeparator) {
+            fmtIntegralPart = fmtIntegralPart.split(',');
+            fmtIntegralPart[0] += ',';
+            fmtIntegralPart = fmtIntegralPart.join('');
+        }
+        
+        if (isExponentNotation) {
+            fmtIntegralPart = fmtIntegralPart.split(/e[\+\-]?0+/i).join('');
+            fmtDecimalPart = fmtDecimalPart.split(/e[\+\-]?0+/i).join('');
+        }
+        log(format);
+        log(fmtIntegralPart);
+        log(fmtDecimalPart);
+        
+        /*
+        // after rounding `number`
+        if (numberIsNotZero && number === 0 && formatIfRoundToZero) {
+            return customNumericFormatHelper(number, formatIfRoundToZero);
+        }
+        */
     }
     
     function customDateFormat(date, format) {
@@ -597,6 +691,7 @@ String.prototype.format = String.prototype.format || function() {
 };
 
 on('ready', function() {
+    log('{0:#,000,00,00,,.00e+000}'.format(123.5));
     //log('  {0,5:d}'.format(123));
     //log('+ {0,5:d}'.format(234));
     //log('= {0,5:d}'.format(123+234));
@@ -608,5 +703,5 @@ on('ready', function() {
     //log('foo{}{0}bar{1,5}fizz{2:abc}buz{3,2:abc}'.format('123'));
     
     //log('Now: {0:r}'.format(new Date()));
-    log('Now: {0:ddd, dd MMM yyyy HH:mm:ss \'GMT\'}'.format(new Date()));
+    //log('Now: {0:ddd, dd MMM yyyy HH:mm:ss \'GMT\'}'.format(new Date()));
 });
