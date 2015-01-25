@@ -458,12 +458,6 @@ bshields.format = (function() {
         year = date.getFullYear();
         decade = Math.round(((year / 100) - parseInt(year / 100, 10)) * 100);
         
-        /**
-         * TODO: handle escaped and quoted characters
-         * "string" should not be parsed by the below
-         * 'string' should not be parsed by the below
-         * /\\[dfFghKmMsty]/ should not be parsed by the below
-         */
         if (/^%[dfFgmMsty]$/.test(result)) {
             result = result.substring(1);
         }
