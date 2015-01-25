@@ -462,7 +462,7 @@ bshields.format = (function() {
             result = result.substring(1);
         }
         
-        preMap = ['\\d', '\\f', '\\F', '\\g', '\\h', '\\H', '\\K', '\\m', '\\M', '\\s', '\\t', '\\y'];
+        preMap = ['\\"', '\\\'', '\\d', '\\f', '\\F', '\\g', '\\h', '\\H', '\\K', '\\m', '\\M', '\\s', '\\t', '\\y'];
         
         map = {
             'dddd': dayOfWeek.full,
@@ -503,13 +503,12 @@ bshields.format = (function() {
             // Not using UTC offset (zzz, zz, and z)
         };
         
-        result.replace(/("|')(.*?)\1/, function(match, p1, p2) {
+        _.each(preMap, function(char, index) { result = result.replace(char, String.fromCharCode(index)); });
+        result.replace(/("|')(.+?)\1/, function(match, p1, p2) {
             result = result.replace(match,
                 String.fromCharCode(preMap.length) + quotedDictionary.length + String.fromCharCode(preMap.length));
             quotedDictionary.push(p2);
         });
-        
-        _.each(preMap, function(char, index) { result = result.replace(char, String.fromCharCode(index)); });
         result = result.replace(new RegExp(_.keys(map).join('|'), 'g'), function(matched) { return map[matched]; });
         _.each(preMap, function(char, index) { result = result.replace(String.fromCharCode(index), char.substring(1)); });
         
@@ -609,5 +608,5 @@ on('ready', function() {
     //log('foo{}{0}bar{1,5}fizz{2:abc}buz{3,2:abc}'.format('123'));
     
     //log('Now: {0:r}'.format(new Date()));
-    //log('Now: {0:ddd, dd MMM yyyy HH:mm:ss G\\MT}'.format(new Date()));
+    log('Now: {0:ddd, dd MMM yyyy HH:mm:ss \'GMT\'}'.format(new Date()));
 });
