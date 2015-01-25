@@ -21,8 +21,7 @@ bshields.format = (function() {
     var version = 1.0,
         matchStandardNumericFormatString = /^[cdefgnpx][0-9]{0,2}$/i,
         matchStandardDateFormatString = /^[dDfFgGmMoOrRstTuyY]$/,
-        simpleMatch = /^\{(\d+)(?:,(\d+))?(?::(.+?))?\}$/,
-        cache = {};
+        simpleMatch = /^\{(\d+)(?:,(\d+))?(?::(.+?))?\}$/;
     
     function repeat(string, amount) {
         if (amount <= 0) {
@@ -434,12 +433,13 @@ bshields.format = (function() {
     }
     
     function customDateFormat(date, format) {
-        var dayOfWeek, dayOfMonth, map,
+        var dayOfWeek, dayOfMonth, preMap, map,
             milliseconds, deciseconds, decaseconds,
             era, hour12, hour24, year, decade,
             month, monthFull, seconds,
             aP, amPM, minute, month,
-            result = format;
+            result = format,
+            quotedDictionary = [];
         
         date = new Date(date);
         dayOfWeek = getDayOfWeek(date.getUTCDay());
@@ -467,6 +467,8 @@ bshields.format = (function() {
         if (/^%[dfFgmMsty]$/.test(result)) {
             result = result.substring(1);
         }
+        
+        preMap = ['\\d', '\\f', '\\F', '\\g', '\\h', '\\H', '\\K', '\\m', '\\M', '\\s', '\\t', '\\y'];
         
         map = {
             'dddd': dayOfWeek.full,
@@ -507,8 +509,18 @@ bshields.format = (function() {
             // Not using UTC offset (zzz, zz, and z)
         };
         
-        result = result.replace(new RegExp(_.keys(map).join('|'), 'g'), function(matched) {
-            return map[matched];
+        result.replace(/("|')(.*?)\1/, function(match, p1, p2) {
+            result = result.replace(match,
+                String.fromCharCode(preMap.length) + quotedDictionary.length + String.fromCharCode(preMap.length));
+            quotedDictionary.push(p2);
+        });
+        
+        _.each(preMap, function(char, index) { result = result.replace(char, String.fromCharCode(index)); });
+        result = result.replace(new RegExp(_.keys(map).join('|'), 'g'), function(matched) { return map[matched]; });
+        _.each(preMap, function(char, index) { result = result.replace(String.fromCharCode(index), char.substring(1)); });
+        
+        _.each(quotedDictionary, function(element, index) {
+            result = result.replace(String.fromCharCode(preMap.length) + index + String.fromCharCode(preMap.length), element);
         });
         
         return result;
@@ -592,9 +604,10 @@ String.prototype.format = String.prototype.format || function() {
 };
 
 on('ready', function() {
-    log('  {0,5:d}'.format(123));
-    log('+ {0,5:d}'.format(234));
-    log('= {0,5:d}'.format(123+234));
+    //log('  {0,5:d}'.format(123));
+    //log('+ {0,5:d}'.format(234));
+    //log('= {0,5:d}'.format(123+234));
+    
     //log('foo{0}bar{1}'.format('123'));
     //log('foo{1,5}bar{2,1}'.format('123'));
     //log('foo{2:abc}bar{3:abc}'.format('123'));
@@ -602,4 +615,5 @@ on('ready', function() {
     //log('foo{}{0}bar{1,5}fizz{2:abc}buz{3,2:abc}'.format('123'));
     
     //log('Now: {0:r}'.format(new Date()));
+    //log('Now: {0:ddd, dd MMM yyyy HH:mm:ss G\\MT}'.format(new Date()));
 });
