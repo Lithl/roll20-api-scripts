@@ -1,0 +1,15 @@
+{
+  "name": "Triggered SFX",
+  "version": "0.1",
+  "description": "Provides an interface for building trigger events; designed for sound effects, there isn't much limit to what it can do.",
+  "authors": "Brian Shields",
+  "roll20userid": "235259",
+  "dependencies": {
+    "splitArgs": "1.0"
+  },
+  "modifies": {
+    "message": "read"
+  },
+  "conflicts": [
+  ]
+}
