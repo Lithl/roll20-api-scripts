@@ -322,14 +322,17 @@ bshields.sfx = (function() {
     }
     
     function sendAlias(playerid, alias, data) {
-        var who = getObj('player', playerid).get('displayname');
+        var who = getObj('player', playerid).get('displayname'),
+            message = '/w "' + who + '" &{template:default} '
+                + '{{name=Alias: ' + alias + '}} '
+                + '{{Type:=**' + (data.trackName ? 'Track' : 'Playlist') + '**}} '
+                + '{{Name:=' + (data.trackName ? data.trackName : data.playlistName) + '}} ';
         
-        sendChat('System', '/w "' + who + '" &{template:default} '
-            + '{{name=Alias: ' + alias + '}} '
-            + '{{Type:=**' + (data.trackName ? 'Track' : 'Playlist') + '**}} '
-            + '{{Name:=' + (data.trackName ? data.trackName : data.playlistName) + '}} '
-            + '{{Mode:=' + (data.playInorder ? 'Inorder' : (data.playAll ? 'All' : 'Random')) + '}} '
-            + '{{Duration:=' + data.duration + 's}}');
+        if (data.playlistName) message += '{{Mode:=' + (data.playInorder ? 'Inorder' : (data.playAll ? 'All' : 'Random')) + '}} ';
+        
+        message += '{{Duration:=' + data.duration + 's}}';
+        
+        sendChat('System', message);
     }
     
     function sendError(playerid, message) {
