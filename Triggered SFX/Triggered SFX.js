@@ -269,6 +269,13 @@ bshields.sfx = (function() {
                 };
                 sendAlias(msg.playerid, aliasName, state.bshields.sfx.aliases[aliasName]);
             },
+            play: function(args, msg) {
+                if (args.length == 0) {
+                    sendError(msg.playerid, 'Please supply an alias to play.');
+                    return;
+                }
+                play(args[0]);
+            },
             help: function(command, args, msg) {
                 if (_.isFunction(commands['help_' + command])) {
                     commands['help_' + command](args, msg);
