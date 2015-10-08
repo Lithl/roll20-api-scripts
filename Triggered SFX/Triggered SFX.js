@@ -128,8 +128,9 @@ bshields.sfx = (function() {
                     
                     func = 'obj prev -> ' + func;
                 }
-                state.bshields.sfx.triggers[bareArgs[0].toLowerCase()].push(func.replace(/\bplay\(/, 'this.play('));
-                on(bareArgs[0].toLowerCase(), wrapLambda(_.last(state.bshields.sfx.triggers[bareArgs[0].toLowerCase()]).lambda()));
+                state.bshields.sfx.triggers[bareArgs[0].toLowerCase()].push(func);
+                on(bareArgs[0].toLowerCase(), wrapLambda(_.last(state.bshields.sfx.triggers[bareArgs[0].toLowerCase()])
+                    .replace(/\bplay\(/, 'this.play(').lambda()));
             },
             deletesfx: function(args, msg) {
                 var alias;
@@ -386,8 +387,8 @@ bshields.sfx = (function() {
     function registerEventHandlers() {
         on('chat:message', handleInput);
         _.each(state.bshields.sfx.triggers, function(allCodes, trigger) {
-            _.each(allCodes, function(code) {
-                on(trigger, wrapLambda(code.replace(/\bplay\(/, 'this.play(').lambda()));
+            _.each(allCodes, function(code, index) {
+                on(trigger, wrapLambda(code.replace(/\bplay\(/g, 'this.play(').lambda()));
             });
         });
     }
