@@ -301,20 +301,23 @@ bshields.sfx = (function() {
                 return;
             }
             if (data.playAll) {
-                _.each(playlist.n, function(trackId) {
+                _.each(playlist.i, function(trackId) {
                     track = getObj('jukeboxtrack', trackId);
-                    track.set('playing', true);
+                    track.set({
+                        playing: true,
+                        softstop: false
+                    });
                     setTimeout(function(trackObj) { trackObj.set('playing', false); }, data.duration * 1000, track);
                 });
             } else if (data.playRandom) {
-                track = getObj('jukeboxtrack', _.sample(playlist.n));
+                track = getObj('jukeboxtrack', _.sample(playlist.i));
                 track.set('playing', true);
                 setTimeout(function(trackObj) { trackObj.set('playing', false); }, data.duration * 1000, track);
             } else {
-                if (data.nextIdx >= playlist.n.length) {
+                if (data.nextIdx >= playlist.i.length) {
                     data.nextIdx = 0;
                 }
-                track = getObj('jukeboxtrack', playlist.n[data.nextIdx]);
+                track = getObj('jukeboxtrack', playlist.i[data.nextIdx]);
                 data.nextIdx = data.nextIdx + 1;
                 track.set('playing', true);
                 setTimeout(function(trackObj) { trackObj.set('playing', false); }, data.duration * 1000, track);
@@ -395,12 +398,12 @@ bshields.sfx = (function() {
     
     function wrapLambda(lambda) {
         return function() {
-            var errorMessage = '/w gm An error occurred!<br>A triggered event failed. Error message:<br>';
+            var errorMessage = '/w gm An error occurred!<br>A triggered event failed. Stack trace:<br>';
             
             try {
                 lambda.apply(bshields.sfx, arguments);
             } catch(e) {
-                errorMessage += e + '<br>Event:<br><pre>' + lambda.toString() + '</pre>';
+                errorMessage += '<pre>' + e.stack + '</pre>Event:<br><pre>' + lambda.toString() + '</pre>';
                 errorMessage = errorMessage.replace(/\n/g, '<br>');
                 sendChat('System',  errorMessage);
             }
