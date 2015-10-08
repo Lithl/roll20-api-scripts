@@ -129,8 +129,7 @@ bshields.sfx = (function() {
                     func = 'obj prev -> ' + func;
                 }
                 state.bshields.sfx.triggers[bareArgs[0].toLowerCase()].push(func);
-                on(bareArgs[0].toLowerCase(), wrapLambda(_.last(state.bshields.sfx.triggers[bareArgs[0].toLowerCase()])
-                    .replace(/\bplay\(/, 'this.play(').lambda()));
+                on(bareArgs[0].toLowerCase(), wrapLambda(_.last(triggerCodeToLambdaCode(state.bshields.sfx.triggers[bareArgs[0].toLowerCase()])).lambda()));
             },
             deletesfx: function(args, msg) {
                 var alias;
@@ -390,10 +389,15 @@ bshields.sfx = (function() {
     function registerEventHandlers() {
         on('chat:message', handleInput);
         _.each(state.bshields.sfx.triggers, function(allCodes, trigger) {
-            _.each(allCodes, function(code, index) {
-                on(trigger, wrapLambda(code.replace(/\bplay\(/g, 'this.play(').lambda()));
+            _.each(allCodes, function(code) {
+                on(trigger, wrapLambda(triggerCodeToLambdaCode(code).lambda()));
             });
         });
+    }
+    
+    function triggerCodeToLambdaCode(code) {
+        return code.replace(/\bplay\(/g, 'this.play(')
+                   .replace(/msg -> (.*)/, 'msg -> (msg.who !== \'System\' ? ($1) : 0)');
     }
     
     function wrapLambda(lambda) {
@@ -401,7 +405,7 @@ bshields.sfx = (function() {
             var errorMessage = '/w gm An error occurred!<br>A triggered event failed. Stack trace:<br>';
             
             try {
-                lambda.apply(bshields.sfx, arguments);
+                lambda.apply(bshields.sfx.availableFuncs, arguments);
             } catch(e) {
                 errorMessage += '<pre>' + e.stack + '</pre>Event:<br><pre>' + lambda.toString() + '</pre>';
                 errorMessage = errorMessage.replace(/\n/g, '<br>');
@@ -413,7 +417,9 @@ bshields.sfx = (function() {
     return {
         checkInstall: checkInstall,
         registerEventHandlers: registerEventHandlers,
-        play: play
+        availableFuncs: {
+            play: play
+        }
     };
 }());
 
