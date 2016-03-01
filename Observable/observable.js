@@ -190,6 +190,10 @@ bshields.eventTarget = (function() {
         var r20, observable = new Observable({ get: function() { return ''; } }),
             next = JSON.parse(JSON.stringify(props));
         
+        if (!_.contains(creatableTypes, type)) {
+            throw new TypeError('"' + type + '" is not a valid type for object creation.');
+        }
+        
         next._type = type;
         dispatchEvent(type + ':create', observable, next);
         if (observable.defaultAction) {
