@@ -103,7 +103,8 @@ bshields.jsql = (function() {
             numberedParametersStartAt: 1,
             replaceSingleQuotes: false,
             singleQuoteReplacement: '\'\'',
-            separator: ' '
+            separator: ' ',
+            autoCreateTable: false
         };
         
         cls.globalValueHandlers = [];
@@ -943,10 +944,7 @@ bshields.jsql = (function() {
                     totalValues = [];
                 
                 if (this.fields.length && this.query) {
-                    let queryParamString = this.query.toParamString({
-                            buildParameterized: options.buildParameterized,
-                            nested: true
-                        }),
+                    let queryParamString = this.query.toParamString({ buildParameterized: options.buildParameterized }),
                         text = queryParamString.text,
                         values = queryParamString.values;
                     totalStr = `(${this.fields.join(', ')}) (${text})`;
@@ -1346,6 +1344,8 @@ bshields.jsql = (function() {
             }
             
             getBlock(blockType) { return _.find(this.blocks, (b) => { return b instanceof blockType; }); }
+            
+            execute(options) { throw new Error('not implemented'); }
         };
         
         cls.Select = class extends cls.QueryBuilder {
@@ -1368,6 +1368,10 @@ bshields.jsql = (function() {
                 ];
                 super(options, blocks);
             }
+            
+            execute(options) {
+                
+            }
         };
         
         cls.Update = class extends cls.QueryBuilder {
@@ -1382,6 +1386,10 @@ bshields.jsql = (function() {
                     new cls.LimitBlock(options)
                 ];
                 super(options, blocks);
+            }
+            
+            execute(options) {
+                
             }
         };
         
@@ -1398,6 +1406,10 @@ bshields.jsql = (function() {
                 ];
                 super(options, blocks);
             }
+            
+            execute(options) {
+                
+            }
         };
         
         cls.Insert = class extends cls.QueryBuilder {
@@ -1410,6 +1422,59 @@ bshields.jsql = (function() {
                     new cls.InsertFieldsFromQueryBlock(options)
                 ];
                 super(options, blocks);
+            }
+            
+            execute(options) {
+                var table, insertObj, fields = [], values = [], autoCreateTable;
+                options = extend({}, cls.DefaultQueryBuilderOptions, this.options, options || {});
+                autoCreateTable = options.autoCreateTable;
+                _.each(this.blocks, function(b) {
+                    if (b instanceof cls.IntoTableBlock) {
+                        // INSERT INTO table
+                        table = b.tables;
+                    } else if (b instanceof cls.InsertFieldValueBlock) {
+                        // INSERT INTO table (...fields) VALUES (...values1), (...values2), ..., (...valuesN)
+                        Array.prototype.push.apply(fields, b.fields);
+                        Array.prototype.push.apply(values, b.values);
+                    } else if (b instanceof cls.InsertFieldsFromQueryBlock) {
+                        // INSERT INTO table1 (...fields) SELECT ...fields FROM table2
+                        Array.prototype.push.apply(fields, b.fields);
+                        // values = b.query.execute()
+                    }
+                });
+                
+                insertObj = state.bshields.jsql.db[table.table];
+                
+                if (!insertObj) {
+                    if (autoCreateTable) {
+                        log(`Automatically generating table '${table.table}' with columns (${fields.join(', ')})`);
+                        state.bshields.jsql.db[table.table] = { columns: fields, rows: [] };
+                        insertObj = state.bshields.jsql.db[table.table];
+                    } else {
+                        throw new Error(`No table '${table.table}' exists. Either create the table, or use the autoCreateTable option.`);
+                    }
+                }
+                
+                _.each(values, function(v) {
+                    var row = extend({}, _.object(insertObj.columns, _.times(insertObj.columns.length, () => null)));
+                    _.each(fields, function(f, i) {
+                        const tableQualified = new RegExp('^' + table.table + '\.'),
+                              aliasQualified = new RegExp('^' + table.alias + '\.');
+                        
+                        if (insertObj.columns.indexOf(f) < 0) {
+                            throw new Error(`Unknown column '${f}'.`);
+                        }
+                        
+                        if (tableQualified.test(f)) {
+                            f = f.substring(table.table.length + 1);
+                        } else if (aliasQualified.test(f)) {
+                            f = f.substring(table.alias.length + 1);
+                        }
+                        
+                        row[f] = v[i];
+                    });
+                    insertObj.rows.push(row);
+                });
             }
         };
         
@@ -1486,6 +1551,12 @@ bshields.jsql = (function() {
                     { name: 'Thomas', age: 29 },
                     { name: 'Jane', age: 31 }
             ]));
+    log(jsql.insert()
+            .into('test')
+            .fromQuery(
+                ['f1', 'f2'],
+                jsql.select().from('table')
+            ));
     
     // DELETE examples
     log(jsql.delete()
@@ -1532,8 +1603,30 @@ bshields.jsql = (function() {
             .table('students')
             .set('start_date', new Date(2013, 5, 1)));
     
+    /*jsql.insert({ autoCreateTable: true })
+        .into('test')
+        .setFieldsRows([
+                { name: 'Thomas', age: 29 },
+                { name: 'Jane', age: 31 }
+        ]).execute();*/
+    
+    function checkInstall() {
+        if (!state.bshields ||
+            !state.bshields.jsql ||
+            !state.bshields.jsql.version ||
+             state.bshields.jsql.version !== version) {
+            state.bshields = state.bshields || {};
+            state.bshields.jsql = {
+                version: version,
+                gcUpdated: 0,
+                db: {}
+            };
+        }
+    }
+    
     return {
-        //SQL: SQL
+        SQL: jsql,
+        checkInstall: checkInstall()
     };
 }());
 
