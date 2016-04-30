@@ -766,7 +766,7 @@ bshields.jsql = (function() {
                 }
             }
         };
-        cls.Expression.parse = function parse(str) {
+        cls.Expression.parse = function parse(str, options) {
             // TODO: implement
         };
         cls.Expression.Operator = {
@@ -947,8 +947,10 @@ bshields.jsql = (function() {
             pub_where(expr) {
                 if (expr instanceof cls.Expression) {
                     this.conditions.push(expr);
+                } else if (expr instanceof String) {
+                    this.conditions.push(cls.Expression.parse(expr, this.options));
                 } else {
-                    this.conditions.push(cls.Expression.parse(expr));
+                    this.conditions.push(new cls.Expression(expr, this.options));
                 }
             }
         };
@@ -986,6 +988,95 @@ bshields.jsql = (function() {
             }
             
             pub_offset(offset) { this.offset = offset instanceof cls.Expression ? offset : parseInt(offset); }
+        };
+        
+        cls.SetFieldBlock = class SetFieldBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.fields = [];
+                this.values = [];
+            }
+            
+            // field(String)
+            // field(String, obj)
+            pub_field(name, value) {
+                if (_.isString(name)) {
+                    this.fields.push(name);
+                    if (value !== undefined) {
+                        this.values.push(value);
+                    }
+                } else {
+                    throw new Error(`Expected string but got ${typeof name}`);
+                }
+            }
+            
+            // value(obj)
+            pub_value(value) {
+                if (value !== undefined) {
+                    this.values.push(value);
+                } else {
+                    throw new Error('Must supply a value');
+                }
+            }
+            
+            // fields(Array{String})
+            // fields(Array{String}, Array{obj})
+            // fields(Object)
+            // fields(...String)
+            pub_fields(names, values) {
+                if (_.isArray(names)) {
+                    if (!_.every(names, (n) => _.isString(n))) {
+                        throw new Error('Names must be an array of strings');
+                    }
+                    Array.prototype.push.apply(this.fields, names);
+                    
+                    if (_.isArray(values)) {
+                        if (values.length !== names.length) {
+                            throw new Error('names and values arrays must be same length');
+                        }
+                        Array.prototype.push.apply(this.values, values);
+                    }
+                } else if (_.isObject(names)) {
+                    _.each(names, (v, n) => {
+                        this.fields.push(n);
+                        this.values.push(v);
+                    });
+                } else {
+                    if (!_.every(arguments, (n) => _.isString(n))) {
+                        throw new Error('Arguments must all be strings');
+                    }
+                    Array.prototype.push.apply(this.fields, arguments);
+                }
+            }
+            
+            // values(Array{obj})
+            // values(...obj)
+            pub_values(values) {
+                if (_.isArray(values)) {
+                    Array.prototype.push.apply(this.values, values);
+                } else {
+                    Array.prototype.push.apply(this.values, arguments);
+                }
+            }
+        };
+        
+        cls.SubqueryBlock = class SubqueryBlock extends cls.Block {
+            constructor(qbWhitelist, queryLimit, options) {
+                super(options);
+                this.whitelist = qbWhitelist;
+                this.queryLimit = queryLimit;
+                this.queries = [];
+            }
+            
+            pub_sub(qb) {
+                if (this.queries.length === this.queryLimit) {
+                    throw new Error('Subquery limit reached');
+                }
+                if (qb instanceof cls.QueryBuilder && !_.any(this.whitelist, (w) => qb instanceof w)) {
+                    throw new Error('Subquery is not whitelisted');
+                }
+                this.queries.push(qb);
+            }
         };
         
         /***********************************************************************
@@ -1178,6 +1269,54 @@ bshields.jsql = (function() {
             }
         };
         
+        cls.Insert = class Insert extends cls.QueryBuilder {
+            /**
+             * jsql.insert('table')
+             *     .field('f1', 1)
+             *     .field('f2')
+             *     .value(true)
+             *     .fields(['f3', 'f4'])
+             *     .fields('f5', 'f6')
+             *     .values([1, true])
+             *     .values(1, true)
+             *     .fields(['f7', 'f8'], [1, true])
+             *     .fields({
+             *         f9: 1,
+             *         f10: true
+             *     })
+             * 
+             * jsql.insert('table')
+             *     .sub(jsql.select('table2')...)
+             * 
+             * @param tableName String Name of the table to delete from
+             * @param options Object
+             */
+            constructor(tableName, alias, options) {
+                if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
+                    throw new Error('table name required');
+                }
+                super(options, [
+                    new cls.StringBlock(`INSERT INTO ${tableName}`, options),
+                    new cls.SingleTableBlock(tableName, alias, options),
+                    new cls.SetFieldBlock(options),
+                    new cls.SubqueryBlock([cls.Select], 1, options)
+                ]);
+            }
+            
+            /**
+             * Executes the insert operation
+             * 
+             * @param options Object
+             */
+            execute(options) {
+                
+            }
+        };
+        
+        cls.Select = class Select extends cls.QueryBuilder {
+            
+        };
+        
         return {
             VERSION: `JSQL Version ${version}`,
             
@@ -1188,7 +1327,7 @@ bshields.jsql = (function() {
             
             // row queries
             delete: function(tableName, alias, options) { return new cls.Delete(tableName, alias, options); },
-            insert: function(tableName, options) { },
+            insert: function(tableName, alias, options) { return new cls.Insert(tableName, alias, options); },
             select: function(options) { },
             update: function(tableName, options) { },
             
@@ -1199,7 +1338,6 @@ bshields.jsql = (function() {
             
             // expressions
             expr: function(expr, options) { return new cls.Expression(expr, options); },
-            exprOp: cls.Expression.Operator,
             
             cls: cls
         };
