@@ -96,7 +96,11 @@ bshields.jsql = (function() {
             globalTypeHandlers: [],
             DefaultOptions: {
                 typeHandlers: [],
-                autoincrementStartValue: 1
+                autoincrementStartValue: 1,
+                createTableIfNotExists: true,
+                dropTableIfExists: true,
+                createTriggerIfNotExists: true,
+                dropTriggerIfNotExists: true
             },
             
             registerTypeHandler: function(type, handler) {
@@ -882,7 +886,7 @@ bshields.jsql = (function() {
                     schema: qualifiedName.schema || null,
                     table: qualifiedName.table,
                     alias: (qualifiedName.alias || alias) || null
-                })
+                });
             }
         };
         
@@ -949,6 +953,8 @@ bshields.jsql = (function() {
                     this.conditions.push(expr);
                 } else if (expr instanceof String) {
                     this.conditions.push(cls.Expression.parse(expr, this.options));
+                } else if (arguments.length > 1) {
+                    _.each(arguments, (a) => { this.pub_where(a); });
                 } else {
                     this.conditions.push(new cls.Expression(expr, this.options));
                 }
@@ -1079,6 +1085,231 @@ bshields.jsql = (function() {
             }
         };
         
+        cls.TriggerEventBlock = class TriggerEventBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.when = null;
+                this.action = null;
+                this.columns = null;
+            }
+            
+            pub_after(action) {
+                var columns = _.rest(arguments);
+                this.when = cls.TriggeredEventBlock.When.After;
+                if (action && _.isString(action)) {
+                    action = action.toLowerCase();
+                    switch (action) {
+                        case 'delete':
+                            this.action = cls.TriggeredEventBlock.Action.Delete;
+                            break;
+                        case 'insert':
+                            this.action = cls.TriggeredEventBlock.Action.Insert;
+                            break;
+                        case 'update':
+                            this.action = cls.TriggeredEventBlock.Action.Update;
+                            if (columns.length && _.every(columns, (c) => _.isString(c))) {
+                                this.columns = columns;
+                            }
+                            break;
+                    }
+                } else if (_.contains(cls.TriggeredEventBlock.Action, action)) {
+                    this.action = action;
+                    if (this.action === cls.TriggeredEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c))) {
+                        this.columns = columns;
+                    }
+                }
+            }
+            
+            pub_before(action) {
+                var columns = _.rest(arguments);
+                this.when = cls.TriggeredEventBlock.When.Before;
+                if (action && _.isString(action)) {
+                    action = action.toLowerCase();
+                    switch (action) {
+                        case 'delete':
+                            this.action = cls.TriggeredEventBlock.Action.Delete;
+                            break;
+                        case 'insert':
+                            this.action = cls.TriggeredEventBlock.Action.Insert;
+                            break;
+                        case 'update':
+                            this.action = cls.TriggeredEventBlock.Action.Update;
+                            if (columns.length && _.every(columns, (c) => _.isString(c))) {
+                                this.columns = columns;
+                            }
+                            break;
+                    }
+                } else if (_.contains(cls.TriggeredEventBlock.Action, action)) {
+                    this.action = action;
+                    if (this.action === cls.TriggeredEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c))) {
+                        this.columns = columns;
+                    }
+                }
+            }
+            
+            pub_instead(action) {
+                var columns = _.rest(arguments);
+                this.when = cls.TriggeredEventBlock.When.Instead;
+                if (action && _.isString(action)) {
+                    action = action.toLowerCase();
+                    switch (action) {
+                        case 'delete':
+                            this.action = cls.TriggeredEventBlock.Action.Delete;
+                            break;
+                        case 'insert':
+                            this.action = cls.TriggeredEventBlock.Action.Insert;
+                            break;
+                        case 'update':
+                            this.action = cls.TriggeredEventBlock.Action.Update;
+                            if (columns.length && _.every(columns, (c) => _.isString(c))) {
+                                this.columns = columns;
+                            }
+                            break;
+                    }
+                } else if (_.contains(cls.TriggeredEventBlock.Action, action)) {
+                    this.action = action;
+                    if (this.action === cls.TriggeredEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c))) {
+                        this.columns = columns;
+                    }
+                }
+            }
+            
+            pub_delete(when) {
+                this.action = cls.TriggeredEventBlock.Action.Delete;
+                if (when && _.isString(when)) {
+                    when = when.toLowerCase();
+                    switch(when) {
+                        case 'before':
+                            this.when = cls.TriggeredEventBlock.When.Before;
+                            break;
+                        case 'after':
+                            this.when = cls.TriggeredEventBlock.When.After;
+                            break;
+                        case 'instead':
+                        case 'instead of':
+                            this.when = cls.TriggeredEventBlock.When.Instead;
+                            break;
+                    }
+                } else if (_.contains(cls.TriggeredEventBlock.When, when)) {
+                    this.when = when;
+                }
+            }
+            
+            pub_insert(when) {
+                this.action = cls.TriggeredEventBlock.Action.Insert;
+                if (when && _.isString(when)) {
+                    when = when.toLowerCase();
+                    switch(when) {
+                        case 'before':
+                            this.when = cls.TriggeredEventBlock.When.Before;
+                            break;
+                        case 'after':
+                            this.when = cls.TriggeredEventBlock.When.After;
+                            break;
+                        case 'instead':
+                        case 'instead of':
+                            this.when = cls.TriggeredEventBlock.When.Instead;
+                            break;
+                    }
+                } else if (_.contains(cls.TriggeredEventBlock.When, when)) {
+                    this.when = when;
+                }
+            }
+            
+            pub_update(when) {
+                var columns = _.rest(arguments);
+                if (when && _.isString(when)) {
+                    switch (when.toLowerCase()) {
+                        case 'before':
+                            this.when = cls.TriggeredEventBlock.When.Before;
+                            break;
+                        case 'after':
+                            this.when = cls.TriggeredEventBlock.When.After;
+                            break;
+                        case 'instead':
+                        case 'instead of':
+                            this.when = cls.TriggeredEventBlock.When.Instead;
+                            break;
+                        default:
+                            columns = _.toArray(arguments);
+                            break;
+                    }
+                } else if (_.contains(cls.TriggeredEventBlock.When, when)) {
+                    this.when = when;
+                }
+                
+                if (_.every(columns, (c) => _.isString(c))) {
+                    this.columns = columns;
+                }
+            }
+            
+            pub_beforeDelete() {
+                this.pub_before();
+                this.pub_delete();
+            }
+            
+            pub_afterDelete() {
+                this.pub_after();
+                this.pub_delete();
+            }
+            
+            pub_insteadOfDelete() {
+                this.pub_instead();
+                this.pub_delete();
+            }
+            
+            pub_beforeInsert() {
+                this.pub_before();
+                this.pub_insert();
+            }
+            
+            pub_afterInsert() {
+                this.pub_after();
+                this.pub_insert();
+            }
+            
+            pub_insteadOfInsert() {
+                this.pub_instead();
+                this.pub_insert();
+            }
+            
+            pub_beforeUpdate() {
+                this.pub_before();
+                this.pub_update.apply(this, arguments);
+            }
+            
+            pub_afterUpdate() {
+                this.pub_after();
+                this.pub_update.apply(this, arguments);
+            }
+            
+            pub_insteadOfUpdate() {
+                this.pub_instead();
+                this.pub_update.apply(this, arguments);
+            }
+        };
+        cls.TriggerEventBlock.When = {
+            Before: {},
+            After: {},
+            Instead: {}
+        };
+        Object.freeze(cls.TriggerEventBlock.When);
+        cls.TriggerEventBlock.Action = {
+            Delete: {},
+            Insert: {},
+            Update: {}
+        };
+        Object.freeze(cls.TriggerEventBlock.Action);
+        
+        cls.FunctionBlock = class FunctionBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.callbacks = [];
+            }
+            
+            function(callback) { this.callbacks.push(callback); }
+        };
+        
         /***********************************************************************
          * Query builders
          **********************************************************************/
@@ -1135,21 +1366,22 @@ bshields.jsql = (function() {
              * @param ifNotExists boolean Whether to throw an error if the table already exists in the database
              * @param options Object
              */
-            constructor(tableName, ifNotExists, options) {
-                var str;
-                if (ifNotExists !== false) ifNotExists = true;
-                str = ifNotExists ? ' IF NOT EXISTS' : '';
-                
+            constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
+                if (options && options.ifNotExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.createTableIfNotExists = !!options.ifNotExists;
+                    delete options.ifNotExists;
+                }
                 
                 super(options, [
-                    new cls.StringBlock(`CREATE TABLE${str}`, options),
+                    new cls.StringBlock(`CREATE TABLE ${tableName}`, options),
                     new cls.SingleTableBlock(tableName, null, options),
                     new cls.CreateFieldBlock(options)
                 ]);
-                this.ifNotExists = ifNotExists;
+                this.ifNotExists = !!this.options.createTableIfNotExists;
             }
             
             /**
@@ -1204,20 +1436,21 @@ bshields.jsql = (function() {
              * @param ifExists boolean Whether to throw an error if the table already doesn't exist in the database
              * @param options Object
              */
-            constructor(tableName, ifExists, options) {
-                var str;
-                if (ifExists !== false) ifExists = true;
-                str = ifExists ? ' IF EXISTS' : '';
-                
+            constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
+                if (options && options.ifExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.dropTableIfExists = !!options.ifExists;
+                    delete options.ifExists;
+                }
                 
                 super(options, [
-                    new cls.StringBlock(`DROP TABLE${str} ${tableName}`, options),
-                    new cls.SingleTableBlock(tableName, options)
+                    new cls.StringBlock(`DROP TABLE ${tableName}`, options),
+                    new cls.SingleTableBlock(tableName, null, options)
                 ]);
-                this.ifExists = ifExists;
+                this.ifExists = !!this.options.dropTableIfExists;
             }
             
             /**
@@ -1244,13 +1477,13 @@ bshields.jsql = (function() {
              * @param tableName String Name of the table to delete from
              * @param options Object
              */
-            constructor(tableNamne, alias, options) {
+            constructor(tableNamne, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
                 super(options, [
                     new cls.StringBlock(`DELETE FROM ${tableName}`, options),
-                    new cls.SingleTableBlock(tableName, alias, options),
+                    new cls.SingleTableBlock(tableName, null, options),
                     new cls.WhereBlock(options),
                     new cls.OrderByBlock(options),
                     new cls.LimitBlock(options),
@@ -1291,13 +1524,13 @@ bshields.jsql = (function() {
              * @param tableName String Name of the table to delete from
              * @param options Object
              */
-            constructor(tableName, alias, options) {
+            constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
                 super(options, [
                     new cls.StringBlock(`INSERT INTO ${tableName}`, options),
-                    new cls.SingleTableBlock(tableName, alias, options),
+                    new cls.SingleTableBlock(tableName, null, options),
                     new cls.SetFieldBlock(options),
                     new cls.SubqueryBlock([cls.Select], 1, options)
                 ]);
@@ -1313,28 +1546,185 @@ bshields.jsql = (function() {
             }
         };
         
+        cls.Update = class Update extends cls.QueryBuilder {
+            /**
+             * jsql.update('table')
+             *     .field('f1', 1)
+             *     .field('f2')
+             *     .value(true)
+             *     .fields(['f3', 'f4'])
+             *     .fields('f5', 'f6')
+             *     .values([1, true])
+             *     .values(1, true)
+             *     .fields(['f7', 'f8'], [1, true])
+             *     .fields({
+             *         f9: 1,
+             *         f10: true
+             *     })
+             *     .where(...expr)
+             * 
+             * @param tableName String Name of the table to update
+             * @param options Object
+             */
+            constructor(tableName, options) {
+                if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
+                    throw new Error('table name required');
+                }
+                super(options, [
+                    new cls.StringBlock(`UPDATE ${tableName}`, options),
+                    new cls.SingleTableBlock(tableName, null, options),
+                    new cls.SetFieldBlock(options),
+                    new cls.WhereBlock(options)
+                ]);
+            }
+            
+            /**
+             * Execute update operation
+             * 
+             * @param options Object
+             */
+            execute(options) {
+                
+            }
+        };
+        
         cls.Select = class Select extends cls.QueryBuilder {
             
+        };
+        
+        /***********************************************************************
+         * Transactions
+         **********************************************************************/
+        cls.Transaction = class Transaction extends cls.Cloneable {
+            constructor(options) {
+                super();
+                Object.defineProperties(this, {
+                    options: {
+                        writable: false,
+                        enumerable: false,
+                        configurable: false,
+                        value: _.extend({}, cls.DefaultOptions, options || {})
+                    },
+                    actions: {
+                        writable: true,
+                        enumerable: false,
+                        configurable: false,
+                        value: []
+                    },
+                    isOpen: {
+                        writable: true,
+                        enumerable: false,
+                        configurable: false,
+                        value: true
+                    }
+                });
+            }
+            
+            rollback() { this.actions = []; }
+            
+            begin() {
+                this.actions = [];
+                this.isOpen = true;
+            }
+            
+            commit(options) {
+                if (!this.isOpen) {
+                    throw new Error('Transaction has been completed. Start a new transaction in order to commit again.');
+                }
+                
+                options = options || {};
+                if (options.transaction === this) {
+                    options = _.omit(options, 'transaction');
+                }
+                
+                _.each(this.actions, (a) => {
+                    a.execute(options);
+                });
+                this.isOpen = false;
+            }
+        };
+        
+        /***********************************************************************
+         * Triggers
+         **********************************************************************/
+        cls.CreateTrigger = class CreateTrigger extends cls.QueryBuilder {
+            constructor(triggerName, tableName, options) {
+                var qualifiedName;
+                
+                if (!triggerName || triggerName.length === 0 || triggerName.lastIndexOf('.') === triggerName.length) {
+                    throw new Error('trigger name required');
+                }
+                if (options && options.ifNotExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.createTriggerIfNotExists = !!options.ifNotExists;
+                    delete options.ifNotExists;
+                }
+                
+                super(options, [
+                    new cls.StringBlock(`CREATE TRIGGER ${triggerName} ON ${tableName}`, options),
+                    new cls.SingleTableBlock(tableName, null, options),
+                    new cls.TriggerEventBlock(options),
+                    new cls.FunctionBlock(options)
+                ]);
+                this.ifNotExists = !!this.options.createTriggerIfNotExists;
+                qualifiedName = parseQualifiedName(triggerName);
+                this.name = {
+                    schema: qualifiedName.schema || null,
+                    name: qualifiedName.table
+                };
+            }
+            
+            execute(options) {
+                
+            }
+        };
+        
+        cls.DropTrigger = class DropTrigger extends cls.QueryBuilder {
+            constructor(triggerName, options) {
+                var qualifiedName;
+                if (!triggerName || triggerName.length === 0 || triggerName.lastIndexOf('.') === triggerName.length) {
+                    throw new Error('trigger name required');
+                }
+                if (options && options.ifExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.dropTriggerIfExists = !!options.ifExists;
+                    delete options.ifExists;
+                }
+                
+                super(options, [
+                    new cls.StringBlock(`DROP TRIGGER ${triggerName}`, options)
+                ]);
+                this.ifExists = !!this.options.dropTriggerIfExists;
+                qualifiedName = parseQualifiedName(triggerName);
+                this.name = {
+                    schema: qualifiedName.schema || null,
+                    name: qualifiedName.table
+                };
+            }
+            
+            execute(options) {
+                
+            }
         };
         
         return {
             VERSION: `JSQL Version ${version}`,
             
             // table queries
-            createTable: function(tableName, ifNotExists, options) { return new cls.CreateTable(tableName, ifNotExists, options); },
+            createTable: function(tableName, options) { return new cls.CreateTable(tableName, options); },
             alterTable: function(tableName, options) { return new cls.AlterTable(tableName, options); },
-            dropTable: function(tableName, ifExists, options) { return new cls.DropTable(tableName, ifExists, options); },
+            dropTable: function(tableName, options) { return new cls.DropTable(tableName, options); },
             
             // row queries
-            delete: function(tableName, alias, options) { return new cls.Delete(tableName, alias, options); },
-            insert: function(tableName, alias, options) { return new cls.Insert(tableName, alias, options); },
+            delete: function(tableName, options) { return new cls.Delete(tableName, options); },
+            insert: function(tableName, options) { return new cls.Insert(tableName, options); },
             select: function(options) { },
-            update: function(tableName, options) { },
+            update: function(tableName, options) { return new cls.Update(tableName, options); },
             
             // meta queries
-            transaction: function(options) { },
-            createTrigger: function(triggerName, ifNotExists, options) { },
-            dropTrigger: function(triggerName, ifExists, options) { },
+            transaction: function(options) { return new cls.Transaction(options); },
+            createTrigger: function(triggerName, tableName, options) { return new cls.CreateTrigger(triggerName, tableName, options); },
+            dropTrigger: function(triggerName, options) { return new cls.DropTrigger(triggerName, options); },
             
             // expressions
             expr: function(expr, options) { return new cls.Expression(expr, options); },
