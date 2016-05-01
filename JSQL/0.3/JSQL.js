@@ -878,7 +878,7 @@ bshields.jsql = (function() {
             }
         };
         
-        cls.SingleTableBlock = class CreateTableBlock extends cls.AbstractTableBlock {
+        cls.SingleTableBlock = class SingleTableBlock extends cls.AbstractTableBlock {
             constructor(table, alias, options) {
                 var qualifiedName = parseQualifiedName(table);
                 super(options);
@@ -890,11 +890,28 @@ bshields.jsql = (function() {
             }
         };
         
-        cls.CreateFieldBlock = class CreateFieldBlock extends cls.Block {
+        cls.MultipleTableBlock = class MultipleTableBlock extends cls.AbstractTableBlock {
+            constructor(options) { super(options); }
+            
+            pub_from(table, alias) {
+                var qualifiedName = parseQualifiedName(table);
+                this.tables.push({
+                    schema: qualifiedName.schema || null,
+                    table: qualifiedName.table,
+                    alias: (qualifiedName.alias || alias) || null
+                });
+            }
+        };
+        
+        cls.AbstractFieldBlock = class AbstractFieldBlock extends cls.Block {
             constructor(options) {
                 super(options);
                 this.fields = [];
             }
+        };
+        
+        cls.CreateFieldBlock = class CreateFieldBlock extends cls.AbstractFieldBlock {
+            constructor(options) { super(options); }
             
             pub_field(name, typeHandler, autoincrement, options) {
                 var isNumeric = typeHandler === Number || (typeof typeHandler === 'string' && typeHandler.toLowerCase() === 'number');
@@ -928,78 +945,9 @@ bshields.jsql = (function() {
             }
         };
         
-        cls.RenameTableBlock = class RenameTableBlock extends cls.Block {
+        cls.SetFieldBlock = class SetFieldBlock extends cls.AbstractFieldBlock {
             constructor(options) {
                 super(options);
-                this.table = null;
-            }
-            
-            pub_rename(tableName) {
-                if (this.table) {
-                    throw new Error('rename may only be called once');
-                }
-                this.table = '' + tableName;
-            }
-        };
-        
-        cls.WhereBlock = class WhereBlock extends cls.Block {
-            constructor(options) {
-                super(options);
-                this.conditions = [];
-            }
-            
-            pub_where(expr) {
-                if (expr instanceof cls.Expression) {
-                    this.conditions.push(expr);
-                } else if (expr instanceof String) {
-                    this.conditions.push(cls.Expression.parse(expr, this.options));
-                } else if (arguments.length > 1) {
-                    _.each(arguments, (a) => { this.pub_where(a); });
-                } else {
-                    this.conditions.push(new cls.Expression(expr, this.options));
-                }
-            }
-        };
-        
-        cls.OrderByBlock = class OrderByBlock extends cls.Block {
-            constructor(options) {
-                super(options);
-                this.fields = [];
-            }
-            
-            orderBy(field, descending) {
-                field = parseQualifiedName(field, true);
-                descending = !!descending;
-                this.fields.push({
-                    table: field.table || null,
-                    field: field.field,
-                    descending: descending
-                });
-            }
-        };
-        
-        cls.LimitBlock = class LimitBlock extends cls.Block {
-            constructor(options) {
-                super(options);
-                this.limit = null;
-            }
-            
-            pub_limit(limit) { this.limit = limit instanceof cls.Expression ? limit : parseInt(limit); }
-        };
-        
-        cls.OffsetBlock = class OffsetBlock extends cls.Block {
-            constructor(options) {
-                super(options);
-                this.offset = null;
-            }
-            
-            pub_offset(offset) { this.offset = offset instanceof cls.Expression ? offset : parseInt(offset); }
-        };
-        
-        cls.SetFieldBlock = class SetFieldBlock extends cls.Block {
-            constructor(options) {
-                super(options);
-                this.fields = [];
                 this.values = [];
             }
             
@@ -1066,6 +1014,104 @@ bshields.jsql = (function() {
             }
         };
         
+        cls.GetFieldBlock = class GetFieldBlock extends cls.AbstractFieldblock {
+            constructor(options) { super(options); }
+            
+            pub_field(name, alias) {
+                var qualifiedName = parseQualifiedName(name, true);
+                this.fields.push({
+                    schema: qualifiedName.schema || null,
+                    table: qualifiedName.table || null,
+                    field: qualifiedName.field,
+                    alias: (qualifiedField.alias || alias) || null
+                });
+            }
+        };
+        
+        cls.GroupByBlock = class GroupByBlock extends cls.AbstractFieldBlock {
+            constructor(options) { super(options); }
+            
+            pub_groupBy(field, desc) {
+                var qualifiedName = parseQualifiedName(name, true);
+                this.fields.push({
+                    schema: qualifiedName.schema || null,
+                    table: qualifiedName.table || null,
+                    field: qualifiedName.field,
+                    alias: (qualifiedField.alias || alias) || null,
+                    descending: !!desc
+                });
+            }
+        };
+        
+        cls.RenameTableBlock = class RenameTableBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.table = null;
+            }
+            
+            pub_rename(tableName) {
+                if (this.table) {
+                    throw new Error('rename may only be called once');
+                }
+                this.table = '' + tableName;
+            }
+        };
+        
+        cls.WhereBlock = class WhereBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.conditions = [];
+            }
+            
+            pub_where(expr) {
+                if (expr instanceof cls.Expression) {
+                    this.conditions.push(expr);
+                } else if (expr instanceof String) {
+                    this.conditions.push(cls.Expression.parse(expr, this.options));
+                } else if (arguments.length > 1) {
+                    _.each(arguments, (a) => { this.pub_where(a); });
+                } else {
+                    this.conditions.push(new cls.Expression(expr, this.options));
+                }
+            }
+        };
+        
+        cls.OrderByBlock = class OrderByBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.fields = [];
+            }
+            
+            orderBy(field, descending) {
+                field = parseQualifiedName(field, true);
+                descending = !!descending;
+                this.fields.push({
+                    table: field.table || null,
+                    field: field.field,
+                    descending: descending
+                });
+            }
+        };
+        
+        cls.AbstractNumberBlock = class AbstractNumberBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.value = null;
+            }
+        }
+        
+        cls.LimitBlock = class LimitBlock extends cls.AbstractNumberBlock {
+            constructor(options) { super(options); }
+            
+            pub_limit(limit) { this.value = limit instanceof cls.Expression ? limit : parseInt(limit); }
+        };
+        
+        cls.OffsetBlock = class OffsetBlock extends cls.AbstractNumberBlock {
+            constructor(options) { super(options); }
+            
+            pub_offset(offset) { this.value = offset instanceof cls.Expression ? offset : parseInt(offset); }
+        };
+        
         cls.SubqueryBlock = class SubqueryBlock extends cls.Block {
             constructor(qbWhitelist, queryLimit, options) {
                 super(options);
@@ -1084,6 +1130,87 @@ bshields.jsql = (function() {
                 this.queries.push(qb);
             }
         };
+        
+        cls.JoinBlock = class JoinBlock extends cls.Block {
+            constructor(options) {
+                super(options);
+                this.joins = [];
+            }
+            
+            pub_join(table, joinType) {
+                var join = { constraints: [] };
+                if (!_.isString(table)) {
+                    throw new Error(`Expected string, got ${typeof table}`);
+                }
+                join.table = table;
+                
+                if (joinType) {
+                    if (_.contains(cls.JoinBlock.Type, joinType)) {
+                        join.type = joinType;
+                    } else if (_.isString(joinType)) {
+                        joinType = joinType.toLowerCase();
+                        switch (joinType) {
+                            case 'inner':
+                                join.type = cls.JoinBlock.Type.Inner;
+                                break;
+                            case 'left':
+                                join.type = cls.JoinBlock.Left;
+                                break;
+                            case 'right':
+                                join.type = cls.JoinBlock.Right;
+                                break;
+                            case 'full':
+                                join.type = cls.JoinBlock.Full;
+                                break;
+                            case 'cross':
+                                join.type = cls.JoinBlock.Cross;
+                                break;
+                            default:
+                                throw new Error(`Unknown join type: ${joinType}`);
+                        }
+                    } else {
+                        throw new Error(`Expected string or join type but found ${typeof joinType}`);
+                    }
+                }
+                
+                if(this.joins.length && !this.joins[this.joins.length - 1].constraints.length) {
+                    this.joins[this.joins.length - 1].constraints.push(new cls.Expression(true));
+                }
+                this.joins.push(join);
+            }
+            
+            pub_leftJoin(table) { this.pub_join(table, 'left'); }
+            
+            pub_rightJoin(table) { this.pub_join(table, 'right'); }
+            
+            pub_innerJoin(table) { this.pub_join(table, 'inner'); }
+            
+            pub_fullJoin(table) { this.pub_join(table, 'full'); }
+            
+            pub_crossJoin(table) { this.pub_join(table, 'cross'); }
+            
+            pub_on(expr) {
+                if (this.joins.length === 0) {
+                    throw new Error('must call join before on');
+                }
+                
+                if (expr instanceof cls.Expression) {
+                    this.joins[this.joins.length - 1].constraints.push(expr);
+                } else if (_.isString(expr)) {
+                    this.joins[this.joins.length - 1].constraints.push(cls.Expression.parse(expr));
+                } else {
+                    this.joins[this.joins.length - 1].contraints.push(new cls.Expression(expr));
+                }
+            }
+        };
+        cls.JoinBlock.Type = {
+            Inner: {},
+            Left: {},
+            Right: {},
+            Full: {},
+            Cross: {}
+        };
+        Object.freeze(cls.JoinBlock.Type);
         
         cls.TriggerEventBlock = class TriggerEventBlock extends cls.Block {
             constructor(options) {
@@ -1589,7 +1716,24 @@ bshields.jsql = (function() {
         };
         
         cls.Select = class Select extends cls.QueryBuilder {
+            constructor(options) {
+                super(options, [
+                    new cls.StringBlock(`SELECT`, options),
+                    new cls.GetFieldBlock(options),
+                    new cls.MultipleTableBlock(options),
+                    new cls.SubqueryBlock([cls.Select], options),
+                    new cls.JoinBlock(options),
+                    new cls.WhereBlock(options),
+                    new cls.GroupByBlock(options),
+                    new cls.OrderByBlock(options),
+                    new cls.LimitBlock(options),
+                    new cls.OffsetBlock(options)
+                ]);
+            }
             
+            execute(options) {
+                
+            }
         };
         
         /***********************************************************************
@@ -1718,7 +1862,7 @@ bshields.jsql = (function() {
             // row queries
             delete: function(tableName, options) { return new cls.Delete(tableName, options); },
             insert: function(tableName, options) { return new cls.Insert(tableName, options); },
-            select: function(options) { },
+            select: function(options) { return new cls.Select(options); },
             update: function(tableName, options) { return new cls.Update(tableName, options); },
             
             // meta queries
