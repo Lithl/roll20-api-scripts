@@ -100,7 +100,8 @@ bshields.jsql = (function() {
                 createTableIfNotExists: true,
                 dropTableIfExists: true,
                 createTriggerIfNotExists: true,
-                dropTriggerIfNotExists: true
+                dropTriggerIfNotExists: true,
+                useTransaction: null
             },
             
             registerTypeHandler: function(type, handler) {
@@ -1014,7 +1015,7 @@ bshields.jsql = (function() {
             }
         };
         
-        cls.GetFieldBlock = class GetFieldBlock extends cls.AbstractFieldblock {
+        cls.GetFieldBlock = class GetFieldBlock extends cls.AbstractFieldBlock {
             constructor(options) { super(options); }
             
             pub_field(name, alias) {
@@ -1098,7 +1099,7 @@ bshields.jsql = (function() {
                 super(options);
                 this.value = null;
             }
-        }
+        };
         
         cls.LimitBlock = class LimitBlock extends cls.AbstractNumberBlock {
             constructor(options) { super(options); }
@@ -1519,7 +1520,11 @@ bshields.jsql = (function() {
              *         failing to create the table may throw an error.
              */
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1550,8 +1555,12 @@ bshields.jsql = (function() {
              * @param options Object
              * @return `true` in all non-exceptional cases
              */
-            execute() {
-                
+            execute(options) {
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1588,7 +1597,11 @@ bshields.jsql = (function() {
              *         failing to drop the table may throw an error.
              */
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1625,7 +1638,11 @@ bshields.jsql = (function() {
              * @return the number of rows deleted
              */
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1669,7 +1686,11 @@ bshields.jsql = (function() {
              * @param options Object
              */
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1711,7 +1732,11 @@ bshields.jsql = (function() {
              * @param options Object
              */
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1732,7 +1757,11 @@ bshields.jsql = (function() {
             }
             
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1771,14 +1800,16 @@ bshields.jsql = (function() {
                 this.isOpen = true;
             }
             
+            addAction(action) { this.actions.push(action); }
+            
             commit(options) {
                 if (!this.isOpen) {
                     throw new Error('Transaction has been completed. Start a new transaction in order to commit again.');
                 }
                 
                 options = options || {};
-                if (options.transaction === this) {
-                    options = _.omit(options, 'transaction');
+                if (options.useTransaction === this) {
+                    options = _.omit(options, 'useTransaction');
                 }
                 
                 _.each(this.actions, (a) => {
@@ -1819,7 +1850,11 @@ bshields.jsql = (function() {
             }
             
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
@@ -1847,7 +1882,11 @@ bshields.jsql = (function() {
             }
             
             execute(options) {
-                
+                options = _.extend({}, this.options, options || {});
+                if (options.useTransaction instanceof cls.Transaction) {
+                    options.useTransaction.addAction(this);
+                    return;
+                }
             }
         };
         
