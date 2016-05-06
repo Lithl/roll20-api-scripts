@@ -91,6 +91,33 @@ bshields.jsql = (function() {
         };
     }
     
+    function handlerStrToFunction(str) {
+        var regexSimpleReturn = /^\((\w+)\)\s*=>\s*([^{].+[^}])$/,
+            regexDefinedReturn = /^\((\w+)\)\s*=>\s*\{(.+)\}$/,
+            regexFullFunction = /^function\s+\w*\((\w*)\)\s*\{\s*(.+)\s*\}$/,
+            matchesSimpleReturn = str.match(regexSimpleReturn),
+            matchesDefinedReturn = str.match(regexDefinedReturn),
+            matchesFullFunction = str.match(regexFullFunction);
+        
+        if (matchesSimpleReturn) {
+            return new Function(matchesSimpleReturn[1], `return ${matchesSimpleReturn[2]};`);
+        } else if (matchesDefinedReturn) {
+            return new Function(matchesDefinedReturn[1], matchesDefinedReturn[2]);
+        } else if (matchesFullFunction) {
+            return new Function(matchesFullFunction[1], matchesFullFunction[2]);
+        } else {
+            throw new Error(`Cannot match string ${str} to a function template`);
+        }
+    }
+    
+    function uuid() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0,
+                v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+    
     function buildSql() {
         var cls = {
             globalTypeHandlers: [],
@@ -112,7 +139,8 @@ bshields.jsql = (function() {
             },
             getHandlerFor: function(value, handlers) {
                 return getHandlerFor(value, cls.globalTypeHandlers, handlers);
-            }
+            },
+            uuid: uuid
         };
         
         cls.registerTypeHandler('number', (v) => parseFloat(v));
@@ -1189,8 +1217,11 @@ bshields.jsql = (function() {
                 if (this.queries.length === this.queryLimit) {
                     throw new Error('Subquery limit reached');
                 }
-                if (qb instanceof cls.QueryBuilder && !_.any(this.whitelist, (w) => qb instanceof w)) {
-                    throw new Error('Subquery is not whitelisted');
+                if (!(qb instanceof cls.QueryBuilder)) {
+                    throw new Error('Not a subquery');
+                }
+                if (!_.any(this.whitelist, (w) => qb instanceof w)) {
+                    throw new Error('Subquery type is not whitelisted');
                 }
                 this.queries.push(qb);
             }
@@ -1705,8 +1736,13 @@ bshields.jsql = (function() {
                 // ALTER TABLE `table` ADD COLUMN `field` type
                 _.each(newFields, (field) => {
                     table.fields.push(field);
+                    let idx = field.index;
                     _.each(table.rows, (r) => {
-                        r.push(null);
+                        if (field.autoincrement) {
+                            r.push(idx++);
+                        } else {
+                            r.push(null);
+                        }
                     });
                 });
                 
@@ -1866,7 +1902,9 @@ bshields.jsql = (function() {
              * jsql.insert('table')
              *     .sub(jsql.select('table2')...)
              * 
-             * @param tableName String Name of the table to delete from
+             * All chains off insert() form a single insert operation. Another call to insert() is required to insert another row
+             * 
+             * @param tableName String Name of the table to insert into
              * @param options Object
              */
             constructor(tableName, options) {
@@ -1874,7 +1912,6 @@ bshields.jsql = (function() {
                     throw new Error('table name required');
                 }
                 super(options, [
-                    new cls.StringBlock(`INSERT INTO ${tableName}`, options),
                     new cls.SingleTableBlock(tableName, null, options),
                     new cls.SetFieldBlock(options),
                     new cls.SubqueryBlock([cls.Select], 1, options)
@@ -1885,12 +1922,82 @@ bshields.jsql = (function() {
              * Executes the insert operation
              * 
              * @param options Object
+             * @returns 1 in all non-exceptional cases
              */
             execute(options) {
                 options = _.extend({}, this.options, options || {});
                 if (options.useTransaction instanceof cls.Transaction) {
                     options.useTransaction.addAction(this);
                     return;
+                }
+                
+                let schemaName, tableName, fields, values, subqueryResults;
+                _.each(this.blocks, (b) => {
+                    if (b instanceof cls.SingleTableBlock) {
+                        tableName = b.tables[0].table;
+                        schemaName = b.tables[0].schema || 'default'
+                    } else if (b instanceof cls.SetFieldBlock) {
+                        fields = b.fields; // array of strings
+                        values = b.values; // array of any
+                    } else if (b instanceof cls.SubqueryBlock) {
+                        subqueryResults = b.queries[0] ? b.queries[0].execute(options) : null;
+                    }
+                });
+                
+                let db = state.bshields.jsql.db;
+                if (!(db.schemas[schemaName] && db.schemas[schemaName][tableName])) {
+                    throw new Error(`No table named ${schemaName}.${tableName}`);
+                }
+                let table = db.schemas[schemaName][tableName];
+                
+                if (subqueryResults) {
+                    // single subquery overrides fields & values
+                    // TODO: Implement subquery stuff
+                } else {
+                    let tableFieldNames = _.map(table.fields, (f) => f.name);
+                    if (!_.all(fields, (fieldName) => _.contains(tableFieldNames, fieldName))) {
+                        throw new Error(`All fields to insert [${fields.join(', ')}] must exist in the table [${tableFieldNames.join(', ')}]`);
+                    }
+                    if (fields.length !== values.length) {
+                        throw new Error('Must specify same number of fields and values');
+                    }
+                    let insertObj = {}, insertRow = [];
+                    _.each(table.fields, (f) => {
+                        insertObj[f.name] = null;
+                    });
+                    _.each(fields, (fieldName, i) => {
+                        insertObj[fieldName] = values[i];
+                    });
+                    let rowid = null;
+                    _.each(table.fields, (f) => {
+                        let typeHandler = handlerStrToFunction(f.type),
+                            sv = insertObj[f.name] === null ? null : typeHandler(insertObj[f.name]);
+                        
+                        if (f.autoincrement) {
+                            if (sv === null || insertObj[f.name] === undefined || sv < 0) {
+                                insertRow.push(f.index++);
+                            } else {
+                                insertRow.push(sv);
+                                f.index = sv + 1;
+                            }
+                            
+                            if (rowid === null) {
+                                rowid = insertRow[insertRow.length - 1];
+                            }
+                        } else {
+                            insertRow.push(sv);
+                        }
+                    });
+                    if (rowid === null) {
+                        rowid = cls.uuid();
+                    }
+                    insertRow.rowid = rowid;
+                    
+                    table.rows.push(insertRow);
+                    db.changes = 1;
+                    db.totalChanges++;
+                    db.lastRowid = rowid;
+                    return 1;
                 }
             }
         };
