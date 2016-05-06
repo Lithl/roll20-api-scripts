@@ -1548,7 +1548,7 @@ bshields.jsql = (function() {
         
         cls.CreateTable = class CreateTable extends cls.QueryBuilder {
             /**
-             * jsql.createTable('table', true)
+             * jsql.createTable('table')
              *     .field('id', Number)
              *     .field('my_data', 'my_data handler')
              *     .field('custom', function() { ... })
@@ -1572,7 +1572,7 @@ bshields.jsql = (function() {
                     new cls.SingleTableBlock(tableName, null, options),
                     new cls.CreateFieldBlock(options)
                 ]);
-                this.ifNotExists = !!this.options.createTableIfNotExists;
+                this.options.createTableIfNotExists = !!this.options.createTableIfNotExists;
             }
             
             /**
@@ -1604,7 +1604,7 @@ bshields.jsql = (function() {
                     db.schemas[schemaName] = {};
                 }
                 if (db.schemas[schemaName][tableName]) {
-                    if (!this.ifNotExists) {
+                    if (!options.createTableIfNotExists) {
                         throw new Error(`Table ${schemaName}.${tableName} already exists`);
                     }
                     // else nop
@@ -1750,7 +1750,7 @@ bshields.jsql = (function() {
         
         cls.DropTable = class DropTable extends cls.QueryBuilder {
             /**
-             * jsql.dropTable('table', true).execute()
+             * jsql.dropTable('table').execute()
              * 
              * @param tableName String Name of the table to drop
              * @param ifExists boolean Whether to throw an error if the table already doesn't exist in the database
@@ -1767,10 +1767,9 @@ bshields.jsql = (function() {
                 }
                 
                 super(options, [
-                    new cls.StringBlock(`DROP TABLE ${tableName}`, options),
                     new cls.SingleTableBlock(tableName, null, options)
                 ]);
-                this.ifExists = !!this.options.dropTableIfExists;
+                this.options.dropTableIfExists = !!this.options.dropTableIfExists;
             }
             
             /**
@@ -1785,6 +1784,24 @@ bshields.jsql = (function() {
                 if (options.useTransaction instanceof cls.Transaction) {
                     options.useTransaction.addAction(this);
                     return;
+                }
+                
+                let tableName, schemaName;
+                _.each(this.blocks, (b) => {
+                    if (b instanceof cls.SingleTableBlock) {
+                        tableName = b.tables[0].table;
+                        schemaName = b.tables[0].schema || 'default';
+                    }
+                });
+                
+                let db = state.bshields.jsql.db;
+                if (!(db.schemas[schemaName] && db.schemas[schemaName][tableName])) {
+                    if (options.dropTableIfExists) return false;
+                    else throw new Error(`Table ${schemaName}.${tableName} does not exist`);
+                } else {
+                    delete db.schemas[schemaName][tableName];
+                    if (schemaName !== 'default' && _.isEmpty(db.schemas[schemaName])) delete db.schemas[schemaName];
+                    return true;
                 }
             }
         };
