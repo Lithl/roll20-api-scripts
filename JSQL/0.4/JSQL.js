@@ -65,6 +65,7 @@ bshields.jsql = (function() {
         if (name.indexOf(' ') > 0) {
             alias = name.substring(name.lastIndexOf(' ') + 1);
             name = name.substring(0, name.lastIndexOf(' '));
+            table = name;
         }
         
         if (assumeField) {
@@ -73,7 +74,7 @@ bshields.jsql = (function() {
             field = name.table;
         }
         
-        if (table.indexOf('.') >= 0) {
+        if (table && table.indexOf('.') >= 0) {
             schema = table.substring(0, table.lastIndexOf('.'));
             table = table.substring(table.lastIndexOf('.') + 1);
         }
@@ -118,6 +119,662 @@ bshields.jsql = (function() {
         });
     }
     
+    function quoteRegexp(str, except) {
+        var result = String(str).replace(/([-()\[\]{}+?*.$\^|,:#<!\\])/g, '\\$1').replace(/\x08/g, '\\x08');
+        if (except) {
+            result = result.replace(new RegExp(`\\([${except}])`, 'g'), '$1');
+        }
+        return result;
+    }
+    
+    function evaluateExpression(expr, tables, cls) {
+        var operators = cls.Expression.Operator,
+            operands = _.map(expr.operation.operands, (o) => o instanceof cls.Expression ? evaluateExpression(o, tables, cls) : o),
+            tmp, tmpA, tmpB, tmpC;
+        
+        function isField(val) {
+            if (!_.isString(val)) return false;
+            let field = parseQualifiedName(val, true),
+                schema = field.schema || 'default',
+                identifier = field.table ? `${schema}.${field.table}` : '',
+                table = tables(identifier);
+            return _.chain(table.fields).map((f) => f.name).contains(field.field).value();
+        }
+        function pluckField(name) {
+            var field = parseQualifiedName(name, true),
+                schema = field.schema || 'default',
+                identifier = field.table ? `${schema}.${field.table}` : '',
+                table = tables(identifier),
+                idx = _.map(table.fields, (f) => f.name).indexOf(field.field);
+            return _.map(table.rows, (r) => r[idx]);
+        }
+        
+        if (isField(operands[0])) tmp = pluckField(operands[0]);
+        else if (_.isArray(operands[0])) tmp = operands[0];
+        tmpA = tmp;
+        if (isField(operands[1])) tmpB = pluckField(operands[1]);
+        else if (_.isArray(operands[1])) tmpB = operands[1];
+        if (isField(operands[2])) tmpC = pluckField(operands[2]);
+        else if (_.isArray(operands[2])) tmpC = operands[2];
+        
+        switch (expr.operation.operator) {
+            // unary math
+            case operators.Identity:
+                return operands[0];
+            case operators.Negate:
+                if (tmp) return _.map(tmp, (v) => -parseFloat(v));
+                return -parseInt(operands[0]);
+            
+            // unary bitwise
+            case operators.BitNot:
+                if (tmp) return _.map(tmp, (v) => ~parseInt(v));
+                return ~parseInt(operands[0]);
+            
+            // unary logic
+            case operators.Not:
+                if (tmp) return _.map(tmp, (v) => !(!!v));
+                return !(!!operands[0]);
+            
+            // binary math
+            case operators.Plus:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('plus operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) + parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) + parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(v) + parseFloat(operands[0]));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) + parseFloat(operands[1]);
+                }
+            case operators.Minus:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('minus operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) - parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) - parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) - parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) - parseFloat(operands[1]);
+                }
+            case operators.Multiply:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('multiply operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) * parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) * parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(v) * parseFloat(operands[0]));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) * parseFloat(operands[1]);
+                }
+            case operators.Divide:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('divide operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) / parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) / parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) / parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) / parseFloat(operands[1]);
+                }
+            case operators.Modulus:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('modulus operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) % parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) % parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) % parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) % parseFloat(operands[1]);
+                }
+            
+            // binary bitwise
+            case operators.BitOr:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('bitOr operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseInt(p[0]) | parseInt(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseInt(v) | parseInt(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseInt(v) | parseInt(operands[0]));
+                    return operands[0] === null || operands[1] === null ? null : parseInt(operands[0]) | parseInt(operands[1]);
+                }
+            case operators.BitAnd:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('bitAnd operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseInt(p[0]) & parseInt(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseInt(v) & parseInt(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseInt(v) & parseInt(operands[0]));
+                    return operands[0] === null || operands[1] === null ? null : parseInt(operands[0]) & parseInt(operands[1]);
+                }
+            case operators.BitLeft:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('bitLeft operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseInt(p[0]) << parseInt(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseInt(v) << parseInt(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseInt(operands[0] << parseInt(v)));
+                    return operands[0] === null || operands[1] === null ? null : parseInt(operands[0]) << parseInt(operands[1]);
+                }
+            case operators.BitRight:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('bitRight operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseInt(p[0]) >> parseInt(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseInt(v) >> parseInt(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseInt(operands[0] >> parseInt(v)));
+                    return operands[0] === null || operands[1] === null ? null : parseInt(operands[0]) >> parseInt(operands[1]);
+                }
+            
+            // binary logic
+            case operators.Or:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('or operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : (!!p[0]) || (!!p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : !!v || !!operands[1]);
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : !!operands[0] || !!v);
+                    return operands[0] === null || operands[1] === null ? null : (!!operands[0]) || (!!operands[1]);
+                }
+            case operators.And:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('and operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : (!!p[0]) && (!!p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : !!v && !!operands[1]);
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : !!operands[0] && !!v);
+                    return operands[0] === null || operands[1] === null ? null : (!!operands[0]) && (!!operands[1]);
+                }
+            case operators.LessThan:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('lessThan operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) < parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) < parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) < parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) < parseFloat(operands[1]);
+                }
+            case operators.LessThanEqual:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('lessThanEqual operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) <= parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) <= parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) <= parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) <= parseFloat(operands[1]);
+                }
+            case operators.GreaterThan:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('greaterThan operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) > parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) > parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) > parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) > parseFloat(operands[1]);
+                }
+            case operators.GreaterThanEqual:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('greaterThanEqual operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseFloat(p[0]) >= parseFloat(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseFloat(v) >= parseFloat(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseFloat(operands[0]) >= parseFloat(v));
+                    return operands[0] === null || operands[1] === null ? null : parseFloat(operands[0]) >= parseFloat(operands[1]);
+                }
+            case operators.Equal:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('equal operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : p[0] === p[1]).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === operands[1]);
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === operancs[0]);
+                    return operands[0] === null || operands[1] === null ? null : operands[0] === operands[1];
+                }
+            case operators.NotEqual:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('notEqual operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : p[0] !== p[1]).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v !== operands[1]);
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v !== operancs[0]);
+                    return operands[0] === null || operands[1] === null ? null : operands[0] !== operands[1];
+                }
+            case operators.Is:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('is operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === p[1]).value();
+                } else {
+                    if (tmpA) return _.map(tmpA, (v) => v === operands[1]);
+                    if (tmpB) return _.map(tmpB, (v) => v === operands[0]);
+                    return operands[0] === operands[1];
+                }
+            case operators.IsNot:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('isNot operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] !== p[1]).value();
+                } else {
+                    if (tmpA) return _.map(tmpA, (v) => v !== operands[1]);
+                    if (tmpB) return _.map(tmpB, (v) => v !== operands[0]);
+                    return operands[0] !== operands[1];
+                }
+            case operators.In:
+                if (!tmpB) throw new Error('right oeprand for in must be a collection or field');
+                if (tmp.length === 0) return false;
+                if (tmpA) return _.map(tmpA, (v) => _.contains(tmpB, v));
+                return _.contains(tmpB, operands[0]);
+            case operators.NotIn:
+                if (!tmpB) throw new Error('right oeprand for notIn must be a collection or field');
+                if (tmp.length === 0) return true;
+                if (tmpA) return _.map(tmpA, (v) => !_.contains(tmpB, v));
+                return !_.contains(tmpB, operands[0]);
+            case operators.Like:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('like operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB)
+                        .map((p) => {
+                            p[1] = quoteRegexp(p[1])
+                                    .replace(/(%)?%/g, ($0, $1) => $1 === '%' ? $0 : '.*')
+                                    .replace(/(_)?_/g, ($0, $1) => $1 === '_' ? $0 : '.');
+                            return (new RegExp(p[1], 'i')).test(p[0]);
+                        }).value();
+                } else {
+                    if (operands[0] === null || operands[1] === null) return null;
+                    operands[1] = quoteRegexp(operands[1])
+                                .replace(/(%)?%/g, ($0, $1) => $1 === '%' ? $0 : '.*')
+                                .replace(/(_)?_/g, ($0, $1) => $1 === '_' ? $0 : '.');
+                    let regex = new RegExp(operands[1], 'i');
+                    if (tmpA) {
+                        return _.map(tmpA, (v) => v === null ? null : regex.test(v));
+                    }
+                    if (tmpB) {
+                        return _.map(tmpB, (v) => {
+                            if (v === null) return null;
+                            v = quoteRegexp(v)
+                                    .replace(/(%)?%/g, ($0, $1) => $1 === '%' ? $0 : '.*')
+                                    .replace(/(_)?_/g, ($0, $1) => $1 === '_' ? $0 : '.');
+                            return (new RegExp(v, 'i')).test(operands[0]);
+                        });
+                    }
+                    return regex.test(operands[0]);
+                }
+            case operators.NotLike:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('like operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB)
+                        .map((p) => {
+                            p[1] = quoteRegexp(p[1])
+                                    .replace(/(%)?%/g, ($0, $1) => $1 === '%' ? $0 : '.*')
+                                    .replace(/(_)?_/g, ($0, $1) => $1 === '_' ? $0 : '.');
+                            return !(new RegExp(p[1], 'i')).test(p[0]);
+                        }).value();
+                } else {
+                    if (operands[0] === null || operands[1] === null) return null;
+                    operands[1] = quoteRegexp(operands[1])
+                                .replace(/(%)?%/g, ($0, $1) => $1 === '%' ? $0 : '.*')
+                                .replace(/(_)?_/g, ($0, $1) => $1 === '_' ? $0 : '.');
+                    let regex = new RegExp(operands[1], 'i');
+                    if (tmpA) return _.map(tmpA, (v) => v === null ? null : !regex.test(v));
+                    if (tmpB) {
+                        return _.map(tmpB, (v) => {
+                            if (v === null) return null;
+                            v = quoteRegexp(v)
+                                    .replace(/(%)?%/g, ($0, $1) => $1 === '%' ? $0 : '.*')
+                                    .replace(/(_)?_/g, ($0, $1) => $1 === '_' ? $0 : '.');
+                            return !(new RegExp(v, 'i')).test(operands[0]);
+                        });
+                    }
+                    return !regex.test(operands[0]);
+                }
+            case operators.Glob:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('glob operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB)
+                        .map((p) => {
+                            p[1] = quoteRegexp(p[1], '*?')
+                                    .replace(/(\*)?\*/g, ($0, $1) => $1 === '*' ? $0 : '.*')
+                                    .replace(/(\?)?\?/g, ($0, $1) => $1 === '?' ? $0 : '.');
+                            return (new RegExp(p[1])).test(p[0]);
+                        }).value();
+                } else {
+                    if (operands[0] === null || operands[1] === null) return null;
+                    operands[1] = quoteRegexp(operands[1], '*?')
+                                .replace(/(\*)?\*/g, ($0, $1) => $1 === '*' ? $0 : '.*')
+                                .replace(/(\?)?\?/g, ($0, $1) => $1 === '?' ? $0 : '.');
+                    let regex = new RegExp(operands[1]);
+                    if (tmpA) return _.map(tmpA, (v) => v === null ? null : regex.test(v));
+                    if (tmpB) {
+                        return _.map(tmpB, (v) => {
+                            if (v === null) return null;
+                            v = quoteRegexp(v, '*?')
+                                    .replace(/(\*)?\*/g, ($0, $1) => $1 === '*' ? $0 : '.*')
+                                    .replace(/(\?)?\?/g, ($0, $1) => $1 === '?' ? $0 : '.');
+                            return (new RegExp(v)).test(operands[0]);
+                        });
+                    }
+                    return regex.test(operands[0]);
+                }
+            case operators.NotGlob:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('glob operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB)
+                        .map((p) => {
+                            p[1] = quoteRegexp(p[1], '*?')
+                                    .replace(/(\*)?\*/g, ($0, $1) => $1 === '*' ? $0 : '.*')
+                                    .replace(/(\?)?\?/g, ($0, $1) => $1 === '?' ? $0 : '.');
+                            return !(new RegExp(p[1])).test(p[0]);
+                        }).value();
+                } else {
+                    if (operands[0] === null || operands[1] === null) return null;
+                    operands[1] = quoteRegexp(operands[1], '*?')
+                                .replace(/(\*)?\*/g, ($0, $1) => $1 === '*' ? $0 : '.*')
+                                .replace(/(\?)?\?/g, ($0, $1) => $1 === '?' ? $0 : '.');
+                    let regex = new RegExp(operands[1]);
+                    if (tmpA) return _.map(tmpA, (v) => v === null ? null : !regex.test(v));
+                    if (tmpB) {
+                        return _.map(tmpB, (v) => {
+                            if (v === null) return null;
+                            v = quoteRegexp(v, '*?')
+                                    .replace(/(\*)?\*/g, ($0, $1) => $1 === '*' ? $0 : '.*')
+                                    .replace(/(\?)?\?/g, ($0, $1) => $1 === '?' ? $0 : '.');
+                            return !(new RegExp(v)).test(operands[0]);
+                        });
+                    }
+                    return !regex.test(operands[0]);
+                }
+            case operators.Regex:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('regex operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => (new RegExp(p[1])).test(p[0])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : (new RegExp(operands[1])).test(v));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : (new RegExp(v)).test(operands[0]));
+                    return (new RegExp(operands[1])).test(operands[0]);
+                }
+            
+            // aggregate functions
+            case operators.Average:
+                if (!tmp) throw new Error('average function requires collection or field');
+                tmp = _.reject(tmp, (v) => v === null);
+                if (tmp.length === 0) return null;
+                return _.reduce(tmp, (m, v) => m + parseFloat(v), 0) / tmp.length;
+            case operators.Count:
+                if (operands[0] !== '*' && !tmp) throw new Error('count function requires a collection, field, or *');
+                if (operands[0] === '*') tmp = tables();
+                else tmp = _.reject(tmp, (v) => v === null);
+                return tmp.length;
+            case operators.GroupConcat:
+                if (!tmp) throw new Error('groupConcat function requires a collection or field');
+                tmp = _.reject(tmp, (v) => v === null);
+                if (tmp.length === 0) return null;
+                return tmp.join(operands[1]);
+            case operators.Max:
+                if (!tmp) throw new Error('max function requires a collection or field');
+                tmp = _.reject(tmp, (v) => v === null);
+                if (tmp.length === 0) return null;
+                return Math.max.apply(null, _.map(tmp, (v) => parseFloat(v)));
+            case operators.Min:
+                if (!tmp) throw new Error('min function requires a collection or field');
+                tmp = _.reject(tmp, (v) => v === null);
+                if (tmp.length === 0) return null;
+                return Math.min.apply(null, _.map(tmp, (v) => parseFloat(v)));
+            case operators.Sum:
+                if (!tmp) throw new Error('sum function requires a collection or field');
+                tmp = _.reject(tmp, (v) => v === null);
+                if (tmp.legnth === 0) return null;
+                return _.reduce(tmp, (m, v) => m + parseFloat(v), 0);
+            case operators.Total:
+                if (!tmp) throw new Error('total function requires a collection or field');
+                tmp = _.reject(tmp, (v) => v === null);
+                if (tmp.legnth === 0) return 0;
+                return _.reduce(tmp, (m, v) => m + parseFloat(v), 0);
+            
+            // core functions
+            case operators.Abs:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : Math.abs(parseFloat(v)));
+                return operands[0] === null ? null : Math.abs(parseFloat(operands[0]));
+            case operators.Changes:
+                return state.bshields.jsql.db.changes;
+            case operators.Char:
+                if (tmp) return String.fromCodePoint.apply(null, _.map(tmp, (v) => parseInt(v)));
+                return String.fromCodePoint.apply(null, _.map(operands, (v) => parseInt(v)));
+            case operators.Coalesce:
+                if (tmp) return _.find(tmp, (v) => v !== null);
+                return _.find(operands, (v) => v !== null);
+            case operators.IfNull:
+                if (operands[0] !== null) return operands[0];
+                if (operands[1] !== null) return operands[1];
+                return null;
+            case operators.LastInsertRowId:
+                return state.bshields.jsql.db.lastRowid;
+            case operators.Length:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : String(v).length);
+                return operands[0] === null ? null : String(operands[0]).length;
+            case operators.Lower:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : String(v).toLowerCase());
+                return operands[0] === null ? null : String(operands[0]).toLowerCase();
+            case operators.LTrim:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : String(v).replace(/^\s+/, ''));
+                return operands[0] === null ? null : String(operands[0]).replace(/^\s+/, '');
+            case operators.MMax:
+                return Math.max.apply(null, _.chain(operands).reject((v) => v === null).map((v) => parseFloat(v)).value());
+            case operators.MMin:
+                return Math.min.apply(null, _.chain(operands).reject(v => v === null).map((v) => parseFloat(v)).value());
+            case operators.NullIf:
+                if (tmpA && tmpB) return _.difference(tmpA, tmpB).length === 0 ? null : tmpA;
+                if ((tmpA && !tmpB) || (!tmpA && tmpB)) return tmpA ? tmpA : null;
+                return operands[0] === operands[1] ? null : operands[0];
+            case operators.Random:
+                const MAX =  4503599627370495,
+                      MIN = -4503599627370495;
+                return Math.random() * (MAX - MIN) + MIN;
+            case operators.Replace:
+                // haystack, needle, replace
+                if (tmpA) {
+                    if (tmpB) {
+                        if (tmpA.length !== tmpB.length) throw new Error('haystack and needle collection lengths must be the same');
+                        if (tmpC) {
+                            // [],[],[]
+                            if (tmpA.length !== tmpC.length) throw new Error('haystack and replace collection lengths must be the same');
+                            for (let i = 0; i < tmpA.length; i++) {
+                                tmpA[i] = tmpA[i].split(tmpB[i]).join(tmpC[i]);
+                            }
+                            return tmpA;
+                        }
+                        // [],[],''
+                        for (let i = 0; i < tmpA.length; i++) {
+                            tmpA[i] = tmpA[i].split(tmpB[i]).join(operands[2]);
+                        }
+                        return tmpA;
+                    }
+                    if (tmpC) {
+                        // [],'',[]
+                        if (tmpA.length !== tmpC.length) throw new Error('haystack and replace collection lengths must be the same');
+                        for (let i = 0; i < tmpA.length; i++) {
+                            tmpA[i] = tmpA[i].split(operands[1]).join(tmpC[i]);
+                        }
+                        return tmpA;
+                    }
+                    // [],'',''
+                    for (let i = 0; i < tmpA.length; i++) {
+                        tmpA[i] = tmpA[i].split(operands[1]).join(operands[2]);
+                    }
+                    return tmpA;
+                }
+                // '','',''
+                return operands[0].split(operands[1]).join(operands[2]);
+            case operators.Round:
+                return parseFloat(parseFloat(operands[0]).toFixed(parseInt(operands[1])));
+            case operators.RTrim:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : String(v).replace(/\s+$/, ''));
+                return operands[0] === null ? null : String(operands[0]).replace(/\s+$/, '');
+            case operators.Substr:
+                let start = parseInt(operands[1]) || 0,
+                    length = parseInt(operands[2]);
+                if (length === 0) return '';
+                if (length < 0) {
+                    length = Math.abs(length);
+                    start -= length;
+                    return String(operands[0]).substr(start, length)
+                }
+                if (length > 0) {
+                    return String(operands[0]).substr(start, length);
+                }
+                return String(operands[0]).substr(start);
+            case operators.TotalChanges:
+                return state.bshields.jsql.db.totalChanges;
+            case operators.Trim:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : String(v).replace(/^\s*(.*)\s*$/, '$1'));
+                return operands[0] === null ? null : String(operands[0]).replace(/^\s*(.*)\s*$/, '$1');
+            case operators.Typeof:
+                if (tmp) return _.map(tmp, (v) => {
+                    if (v === null) return 'null';
+                    if (_.isString(v)) return 'text';
+                    if (parseInt(v) === parseFloat(v)) return 'integer';
+                    if (!isNaN(parseFloat(v))) return 'real';
+                    return 'blob';
+                });
+                if (operands[0] === null) return 'null';
+                if (_.isString(operands[0])) return 'text';
+                if (parseInt(operands[0]) === parseFloat(operands[0])) return 'integer';
+                if (!isNaN(parseFloat(operands[0]))) return 'real';
+                return 'blob';
+            case operators.Upper:
+                if (tmp) return _.map(tmp, (v) => v === null ? null : String(v).toUpperCase());
+                return operands[0] === null ? null : String(operands[0]).toUpperCase();
+            
+            default:
+                throw new Error(`unrecoverable state: ${JSON.stringify(expr.operation)}`);
+        }
+    }
+    
+    function deepCopyArrayFix(source) {
+        var result;
+        if (source[0]) {
+            result = [];
+            _.each(source, (v, i) => { result[i] = v; });
+        } else {
+            result = source;
+        }
+        
+        _.each(result, (v, k) => {
+            if (typeof v === 'object') result[k] = deepCopyArrayFix(v);
+        });
+        return result;
+    }
+    
+    // Deep Copy code from http://www.oranlooney.com/deep-copy-javascript/
+    function Clone() {}
+	function clone(target) {
+		if ( typeof target == 'object' ) {
+			Clone.prototype = target;
+			return new Clone();
+		} else {
+			return target;
+		}
+	}
+
+	var deepCopiers = [];
+
+	function DeepCopier(config) {
+		for ( var key in config ) this[key] = config[key];
+	}
+	DeepCopier.prototype = {
+		constructor: DeepCopier,
+		canCopy: function(source) { return false; },
+		create: function(source) { },
+		populate: function(deepCopyAlgorithm, source, result) {}
+	};
+
+	function DeepCopyAlgorithm() {
+		this.copiedObjects = [];
+		let thisPass = this;
+		this.recursiveDeepCopy = function(source) { return thisPass.deepCopy(source); }
+		this.depth = 0;
+	}
+	DeepCopyAlgorithm.prototype = {
+		constructor: DeepCopyAlgorithm,
+		maxDepth: 256,
+			
+		cacheResult: function(source, result) { this.copiedObjects.push([source, result]); },
+		getCachedResult: function(source) {
+			var copiedObjects = this.copiedObjects;
+			var length = copiedObjects.length;
+			for ( var i=0; i<length; i++ ) {
+				if ( copiedObjects[i][0] === source ) {
+					return copiedObjects[i][1];
+				}
+			}
+			return undefined;
+		},
+		
+		deepCopy: function(source) {
+			if ( source === null ) return null;
+			if ( typeof source !== 'object' ) return source;
+
+			var cachedResult = this.getCachedResult(source);
+			if ( cachedResult ) return cachedResult;
+
+			for ( var i=0; i<deepCopiers.length; i++ ) {
+				var deepCopier = deepCopiers[i];
+				if ( deepCopier.canCopy(source) ) {
+					return this.applyDeepCopier(deepCopier, source);
+				}
+			}
+			throw new Error("no DeepCopier is able to copy " + source);
+		},
+
+		applyDeepCopier: function(deepCopier, source) {
+			var result = deepCopier.create(source);
+			this.cacheResult(source, result);
+			this.depth++;
+			if ( this.depth > this.maxDepth ) {
+				throw new Error("Exceeded max recursion depth in deep copy.");
+			}
+
+			deepCopier.populate(this.recursiveDeepCopy, source, result);
+			this.depth--;
+			return result;
+		}
+	};
+
+	function deepCopy(source, maxDepth) {
+		var deepCopyAlgorithm = new DeepCopyAlgorithm();
+		if ( maxDepth ) deepCopyAlgorithm.maxDepth = maxDepth;
+		return deepCopyAlgorithm.deepCopy(source);
+	}
+
+	deepCopy.DeepCopier = DeepCopier;
+	deepCopy.deepCopiers = deepCopiers;
+	deepCopy.register = function(deepCopier) {
+		if ( !(deepCopier instanceof DeepCopier) ) deepCopier = new DeepCopier(deepCopier);
+		deepCopiers.unshift(deepCopier);
+	}
+
+	// Generic Object copier
+	deepCopy.register({
+		canCopy: function(source) { return true; },
+		create: function(source) {
+			if ( source instanceof source.constructor ) return clone(source.constructor.prototype);
+			else return {};
+		},
+		populate: function(deepCopy, source, result) {
+			for ( var key in source ) {
+				if ( source.hasOwnProperty(key) ) result[key] = deepCopy(source[key]);
+			}
+			return result;
+		}
+	});
+	// Array copier
+	deepCopy.register({
+		canCopy: function(source) { return Object.prototype.toString.call(source) === '[object Array]'; },
+		create: function(source) { return new source.constructor(); },
+		populate: function(deepCopy, source, result) {
+			for ( var i=0; i<source.length; i++) {
+				result.push( deepCopy(source[i]) );
+			}
+			return result;
+		}
+	});
+	// Date copier
+	deepCopy.register({
+		canCopy: function(source) { return ( source instanceof Date ); },
+		create: function(source) { return new Date(source); }
+	});
+    
     function buildSql() {
         var cls = {
             globalTypeHandlers: [],
@@ -140,7 +797,11 @@ bshields.jsql = (function() {
             getHandlerFor: function(value, handlers) {
                 return getHandlerFor(value, cls.globalTypeHandlers, handlers);
             },
-            uuid: uuid
+            uuid: uuid,
+            evaluate: function(expr, tables) {
+                return evaluateExpression(expr, tables, cls);
+            },
+            deepCopy: deepCopy
         };
         
         cls.registerTypeHandler('number', (v) => parseFloat(v));
@@ -161,7 +822,12 @@ bshields.jsql = (function() {
         cls.BaseBuilder = class BaseBuilder extends cls.Cloneable {
             constructor(options) {
                 super();
-                this.options = _.extend({}, cls.DefaultOptions, options || {});
+                Object.defineProperty(this, 'options', {
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                    value: _.extend({}, cls.DefaultOptions, options || {})
+                })
             }
             
             tap(callback) {
@@ -176,7 +842,7 @@ bshields.jsql = (function() {
         cls.Expression = class Expression extends cls.BaseBuilder {
             constructor(expr, options) {
                 super(options);
-                this.operations = [];
+                this.operation = null;
                 if (expr) {
                     this.identity(expr);
                 }
@@ -184,22 +850,22 @@ bshields.jsql = (function() {
             
             identity(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Identity,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
-                    return new cls.Expression(this, this.options);
+                    return this;
                 }
             }
             
             negate(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Negate,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).negate(this);
@@ -208,10 +874,10 @@ bshields.jsql = (function() {
             
             bitNot(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.BitNot,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).bitNot(this);
@@ -220,10 +886,10 @@ bshields.jsql = (function() {
             
             not(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Not,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).not(this);
@@ -232,10 +898,10 @@ bshields.jsql = (function() {
             
             plus(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Plus,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).plus(this, expr1);
@@ -244,10 +910,10 @@ bshields.jsql = (function() {
             
             minus(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Minus,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).minus(this, expr1);
@@ -256,10 +922,10 @@ bshields.jsql = (function() {
             
             multiply(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Multiply,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).multiply(this, expr1);
@@ -268,10 +934,10 @@ bshields.jsql = (function() {
             
             divide(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Divide,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).divide(this, expr1);
@@ -280,10 +946,10 @@ bshields.jsql = (function() {
             
             modulus(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Modulus,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).modulus(this, expr1);
@@ -292,10 +958,10 @@ bshields.jsql = (function() {
             
             bitOr(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.BitOr,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).bitOr(this, expr1);
@@ -304,10 +970,10 @@ bshields.jsql = (function() {
             
             bitAnd(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.BitAnd,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).bitAnd(this, expr1);
@@ -316,10 +982,10 @@ bshields.jsql = (function() {
             
             bitLeft(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.BitLeft,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).bitLeft(this, expr1);
@@ -328,10 +994,10 @@ bshields.jsql = (function() {
             
             bitRight(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.BitRight,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).bitRight(this, expr1);
@@ -340,10 +1006,10 @@ bshields.jsql = (function() {
             
             or(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Or,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).or(this, expr1);
@@ -352,10 +1018,10 @@ bshields.jsql = (function() {
             
             and(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.And,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).and(this, expr1);
@@ -364,82 +1030,82 @@ bshields.jsql = (function() {
             
             lessThan(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.LessThan,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).lessThan(this, expr1);
                 }
             }
             
-            lessThanEqual(expr1, expr2) {
+            lessThanEquals(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.LessThanEqual,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.options)).lessThanEqual(this, expr1);
+                    return (new cls.Expression(null, this.options)).lessThanEquals(this, expr1);
                 }
             }
             
             greaterThan(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.GreaterThan,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).greaterThan(this, expr1);
                 }
             }
             
-            greaterThanEqual(expr1, expr2) {
+            greaterThanEquals(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.GreaterThanEqual,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.options)).greaterThanEqual(this, expr1);
+                    return (new cls.Expression(null, this.options)).greaterThanEquals(this, expr1);
                 }
             }
             
-            equal(expr1, expr2) {
+            equals(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Equal,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.options)).equal(this, expr1);
+                    return (new cls.Expression(null, this.options)).equals(this, expr1);
                 }
             }
             
-            notEqual(expr1, expr2) {
+            notEqualTo(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.NotEqual,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.options)).notEqual(this, expr1);
+                    return (new cls.Expression(null, this.options)).notEqualTo(this, expr1);
                 }
             }
             
             is(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Is,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).is(this, expr1);
@@ -448,10 +1114,10 @@ bshields.jsql = (function() {
             
             isNot(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.IsNot,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).isNot(this, expr1);
@@ -460,49 +1126,94 @@ bshields.jsql = (function() {
             
             in(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.In,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).in(this, expr1);
                 }
             }
             
-            like(expr1, expr2, escape) {
-                var operands = [expr1, expr2];
-                if (escape !== undefined) operands.push(escape);
-                
+            notIn(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
-                        operator: cls.Expression.Operator.Like,
-                        operands: operands
-                    });
+                    this.operation = {
+                        operator: cls.Expression.Operator.NotIn,
+                        operands: [expr1, expr2]
+                    };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.options)).like(this, expr1, escape);
+                    return (new cls.Expression(null, this.options)).notIn(this, expr1);
+                }
+            }
+            
+            like(expr1, expr2) {
+                if (expr2 !== undefined) {
+                    this.operation = {
+                        operator: cls.Expression.Operator.Like,
+                        operands: [expr1, expr2]
+                    };
+                    return this;
+                } else {
+                    return (new cls.Expression(null, this.options)).like(this, expr1);
+                }
+            }
+            
+            notLike(expr1, expr2) {
+                if (expr2 !== undefined) {
+                    this.operation = {
+                        operator: cls.Expression.Operator.NotLike,
+                        operands: [expr1, expr2]
+                    };
+                    return this;
+                } else {
+                    return (new cls.Expression(null, this.options)).notLike(this, expr1);
                 }
             }
             
             glob(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Glob,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).glob(this, expr1);
                 }
             }
             
+            notGlob(expr1, expr2) {
+                if (expr2 !== undefined) {
+                    this.operation = {
+                        operator: cls.Expression.Operator.NotGlob,
+                        operands: [expr1, expr2]
+                    };
+                    return this;
+                } else {
+                    return (new cls.Expression(null, this.options)).notGlob(this, expr1);
+                }
+            }
+            
+            regex(expr, regex) {
+                if (regex !== undefined) {
+                    this.operation = {
+                        operator: cls.Expression.Operator.Regex,
+                        operands: [expr, regex]
+                    };
+                    return this;
+                } else {
+                    return (new cls.Expression(null, this.options)).regex(this, expr);
+                }
+            }
+            
             avg(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Average,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.operands)).avg(this);
@@ -512,20 +1223,21 @@ bshields.jsql = (function() {
             count(expr) {
                 var operands = [];
                 if (expr !== undefined) operands.push(expr);
-                this.operations.push({
+                else operands.push('*');
+                this.operation = {
                     operator: cls.Expression.Operator.Count,
                     operands: operands
-                });
+                };
                 return this;
             }
             
             groupConcat(expr, separator) {
                 separator = separator || ',';
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.GroupConcat,
                         operands: [expr, separator]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).groupConcat(this, separator);
@@ -540,10 +1252,10 @@ bshields.jsql = (function() {
                 }
                 
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: operator,
                         operands: operands
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).max(this);
@@ -556,11 +1268,12 @@ bshields.jsql = (function() {
                     operator = cls.Expression.Operator.MMin;
                     operands = _.toArray(arguments);
                 }
+                
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: operator,
                         operands: operands
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).min(this);
@@ -569,10 +1282,10 @@ bshields.jsql = (function() {
             
             sum(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Sum,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).sum(this);
@@ -581,10 +1294,10 @@ bshields.jsql = (function() {
             
             total(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Total,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).total(this);
@@ -593,66 +1306,63 @@ bshields.jsql = (function() {
             
             abs(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Abs,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).abs(this);
                 }
             }
             
-            // atomic expression; destroys existing expression chain and prevents building chain without nesting
             changes() {
-                this.operations = [{
+                this.operation = {
                     operator: cls.Expression.Operator.Changes,
                     operands: []
-                }];
-                this.operations.push = () => 0;
+                };
                 return this;
             }
             
             char() {
-                this.operations.push({
+                this.operation = {
                     operator: cls.Expression.Operator.Char,
                     operands: _.toArray(arguments)
-                });
+                };
                 return this;
             }
             
             coalesce() {
-                this.operations.push({
+                if (arguments.length < 2) throw new Error('coalesce must have at least two arguments');
+                this.operation = {
                     operator: cls.Expression.Operator.Coalesce,
                     operands: _.toArray(arguments)
-                });
+                };
                 return this;
             }
             
             ifnull(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    return coalesce(expr1, expr2);
+                    return this.coalesce(expr1, expr2);
                 } else {
                     return (new cls.Expression(null, this.options)).ifnull(this, expr1);
                 }
             }
             
-            // atomic expression; destroys existing expression chain and prevents building chain without nesting
             lastInsertRowid() {
-                this.operations = [{
+                this.operation = {
                     operator: cls.Expression.Operator.LastInsertRowid,
                     operands: []
-                }];
-                this.operations.push = () => 0;
+                };
                 return this;
             }
             
             length(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Length,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).length(this);
@@ -661,10 +1371,10 @@ bshields.jsql = (function() {
             
             lower(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Lower,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).lower(this);
@@ -674,10 +1384,10 @@ bshields.jsql = (function() {
             ltrim(expr, charset) {
                 charset = charset || '\s';
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.LTrim,
                         operands: [expr, charset]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).ltrim(this, charset);
@@ -686,32 +1396,30 @@ bshields.jsql = (function() {
             
             nullif(expr1, expr2) {
                 if (expr2 !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Nullif,
                         operands: [expr1, expr2]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).nullif(this, expr1);
                 }
             }
             
-            // atomic expression; destroys existing expression chain and prevents building chain without nesting
             random() {
-                this.operations = [{
+                this.operation = {
                     operator: cls.Expression.Operator.Random,
                     operands: []
-                }];
-                this.operations.push = () => 0;
+                };
                 return this;
             }
             
             replace(needle, replace, expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Replace,
                         operands: [expr, needle, replace]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).replace(needle, replace, this);
@@ -721,10 +1429,10 @@ bshields.jsql = (function() {
             round(expr, digits) {
                 digits = digits || 0;
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Round,
                         operands: [expr, digits]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).replace(this, digits);
@@ -734,42 +1442,44 @@ bshields.jsql = (function() {
             rtrim(expr, charset) {
                 charset = charset || '\s';
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.RTrim,
                         operands: [expr, charset]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).rtrim(this, charset);
                 }
             }
             
-            substr(expr, start, length) {
+            substr(start, length, expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Substr,
                         operands: [expr, start, length]
-                    });
+                    };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.options)).substr(this, start, length);
+                    return (new cls.Expression(null, this.options)).substr(start, length, this);
                 }
             }
             
-            // atomic expression; destroys existing expression chain and prevents building chain without nesting
             totalChanges() {
-                this.operations = [{
+                this.operation = {
                     operator: cls.Expression.Operator.TotalChanges,
                     operands: []
-                }];
-                this.operations.push = () => 0;
+                };
                 return this;
             }
             
             trim(expr, charset) {
                 charset = charset || '\s';
                 if (expr !== undefined) {
-                    return this.ltrim(expr, charset) && this.rtrim(expr, charset);
+                    this.operation = {
+                        operator: cls.Expression.Operator.Trim,
+                        operands: [expr, charset]
+                    };
+                    return this;
                 } else {
                     return (new cls.Expression(null, this.options)).trim(this, charset);
                 }
@@ -777,10 +1487,10 @@ bshields.jsql = (function() {
             
             typeof(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Typeof,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).typeof(this);
@@ -789,10 +1499,10 @@ bshields.jsql = (function() {
             
             upper(expr) {
                 if (expr !== undefined) {
-                    this.operations.push({
+                    this.operation = {
                         operator: cls.Expression.Operator.Upper,
                         operands: [expr]
-                    });
+                    };
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).upper(this);
@@ -834,8 +1544,12 @@ bshields.jsql = (function() {
             Is: {},                 // a IS b
             IsNot: {},              // a IS NOT b
             In: {},                 // a IN b
+            NotIn: {},              // a NOT IN b
             Like: {},               // a LIKE b ; case-insensitive, %: /[\w0-9]*/, _: /[\w0-9]/
+            NotLike: {},            // a NOT LIKE b
             Glob: {},               // a GLOB b ; case-sensitive, *: /[\w0-9]*/, ?: /[\w0-9]/
+            NotGlob: {},            // a NOT GLOB b
+            Regex: {},              // a REGEX r
             
             // aggregate functions
             Average: {},
@@ -1169,11 +1883,8 @@ bshields.jsql = (function() {
             }
         };
         
-        cls.OrderByBlock = class OrderByBlock extends cls.Block {
-            constructor(options) {
-                super(options);
-                this.fields = [];
-            }
+        cls.OrderByBlock = class OrderByBlock extends cls.AbstractFieldBlock {
+            constructor(options) { super(options); }
             
             orderBy(field, descending) {
                 field = parseQualifiedName(field, true);
@@ -1854,12 +2565,11 @@ bshields.jsql = (function() {
              * @param tableName String Name of the table to delete from
              * @param options Object
              */
-            constructor(tableNamne, options) {
+            constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
                 super(options, [
-                    new cls.StringBlock(`DELETE FROM ${tableName}`, options),
                     new cls.SingleTableBlock(tableName, null, options),
                     new cls.WhereBlock(options),
                     new cls.OrderByBlock(options),
@@ -1880,6 +2590,37 @@ bshields.jsql = (function() {
                     options.useTransaction.addAction(this);
                     return;
                 }
+                
+                let tableAlias, tableName, schemaName, conditions, orderBy, limit, offset;
+                _.each(this.blocks, (b) => {
+                    if (b instanceof cls.SingleTableBlock) {
+                        tableName = b.tables[0].table;
+                        schemaName = b.tables[0].schema || 'default';
+                        tableAlias = b.tables[0].alias;
+                    } else if (b instanceof cls.WhereBlock) {
+                        conditions = b.conditions;
+                    } else if (b instanceof cls.OrderByBlock) {
+                        orderBy = b.fields;
+                    } else if (b instanceof cls.LimitBlock) {
+                        limit = b.value;
+                    } else if (b instanceof cls.OffsetBlock) {
+                        offset = b.value;
+                    }
+                });
+                
+                let db = state.bshields.jsql.db;
+                if (!(db.schemas[schemaName] && db.schemas[schemaName][tableName])) {
+                    throw new Error(`No table named ${schemaName}.${tableName}`);
+                }
+                let table = cls.deepCopy(db.schemas[schemaName][tableName]),
+                    tables = () => table;
+                
+                log(table.rows);
+                _.each(conditions, (c) => {
+                    let matcher = cls.evaluate(c, tables);
+                    table.rows = _.filter(table.rows, (r, i) => !!matcher[i]);
+                });
+                log(table.rows);
             }
         };
         
