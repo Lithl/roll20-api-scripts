@@ -785,7 +785,9 @@ bshields.jsql = (function() {
                 dropTableIfExists: true,
                 createTriggerIfNotExists: true,
                 dropTriggerIfNotExists: true,
-                useTransaction: null
+                useTransaction: null,
+                selectAsObjects: true,
+                triggerParamsAreObjects: true
             },
             
             registerTypeHandler: function(type, handler) {
@@ -2326,6 +2328,11 @@ bshields.jsql = (function() {
              */
             execute(options) {
                 options = _.extend({}, this.options, options || {});
+                if (options.ifNotExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.createTableIfNotExists = !!options.ifNotExists;
+                    delete options.ifNotExists;
+                }
                 if (options.useTransaction instanceof cls.Transaction) {
                     options.useTransaction.addAction(this);
                     return;
@@ -2528,6 +2535,11 @@ bshields.jsql = (function() {
              */
             execute(options) {
                 options = _.extend({}, this.options, options || {});
+                if (options.ifExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.dropTableIfExists = !!options.ifExists;
+                    delete options.ifExists;
+                }
                 if (options.useTransaction instanceof cls.Transaction) {
                     options.useTransaction.addAction(this);
                     return;
@@ -2951,6 +2963,44 @@ bshields.jsql = (function() {
          * Triggers
          **********************************************************************/
         cls.CreateTrigger = class CreateTrigger extends cls.QueryBuilder {
+            /**
+             * jsql.createTrigger('example_schema.example_trigger', 'my_table')
+             *     .after()
+             *     .after('delete')
+             *     .after(cls.TriggerEventBlock.Action.Delete)
+             *     .after('update', 'field1', 'field2', 'fieldN')
+             * 
+             *     .before(...)
+             *     .instead(...)
+             * 
+             *     .delete()
+             *     .delete('after')
+             *     .delete(cls.TriggerEventBlock.When.After)
+             * 
+             *     .insert(...)
+             *     .update(...)
+             *     .update(..., 'field1', 'field2', 'fieldN')
+             * 
+             *     .beforeDelete()
+             *     .afterDelete()
+             *     .insteadOfDelete()
+             * 
+             *     .beforeInsert()
+             *     .afterInsert()
+             *     .insteadOfInsert()
+             * 
+             *     .beforeUpdate()
+             *     .beforeUpdate('field1', 'field2', 'fieldN')
+             *     .afterUpdate()
+             *     .afterUpdate('field1', 'field2', 'fieldN')
+             *     .insteadOfUpdate()
+             *     .insteadOfUpdate('field1', 'field2', 'field3')
+             * 
+             *     .function((newRow) => { ... })           // insert
+             *     .function((newRows, oldRows) => { ... }) // update
+             *     .function((oldRows) => { ... })          // delete
+             *     .execute()
+             */
             constructor(triggerName, tableName, options) {
                 var qualifiedName;
                 
@@ -2964,12 +3014,11 @@ bshields.jsql = (function() {
                 }
                 
                 super(options, [
-                    new cls.StringBlock(`CREATE TRIGGER ${triggerName} ON ${tableName}`, options),
                     new cls.SingleTableBlock(tableName, null, options),
                     new cls.TriggerEventBlock(options),
                     new cls.FunctionBlock(options)
                 ]);
-                this.ifNotExists = !!this.options.createTriggerIfNotExists;
+                this.options.createTriggerIfNotExists = !!this.options.createTriggerIfNotExists;
                 qualifiedName = parseQualifiedName(triggerName);
                 this.name = {
                     schema: qualifiedName.schema || null,
@@ -2979,14 +3028,24 @@ bshields.jsql = (function() {
             
             execute(options) {
                 options = _.extend({}, this.options, options || {});
+                if (options.ifNotExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.createTriggerIfNotExists = !!options.ifNotExists;
+                    delete options.ifNotExists;
+                }
                 if (options.useTransaction instanceof cls.Transaction) {
                     options.useTransaction.addAction(this);
                     return;
                 }
+                
+                // read options.createTriggerIfNotExists
             }
         };
         
         cls.DropTrigger = class DropTrigger extends cls.QueryBuilder {
+            /**
+             * jsql.dropTrigger('example_schema.example_trigger').execute()
+             */
             constructor(triggerName, options) {
                 var qualifiedName;
                 if (!triggerName || triggerName.length === 0 || triggerName.lastIndexOf('.') === triggerName.length) {
@@ -2998,10 +3057,8 @@ bshields.jsql = (function() {
                     delete options.ifExists;
                 }
                 
-                super(options, [
-                    new cls.StringBlock(`DROP TRIGGER ${triggerName}`, options)
-                ]);
-                this.ifExists = !!this.options.dropTriggerIfExists;
+                super(options, []);
+                this.options.dropTriggerIfExists = !!this.options.dropTriggerIfExists;
                 qualifiedName = parseQualifiedName(triggerName);
                 this.name = {
                     schema: qualifiedName.schema || null,
@@ -3011,10 +3068,17 @@ bshields.jsql = (function() {
             
             execute(options) {
                 options = _.extend({}, this.options, options || {});
+                if (options.ifExists !== undefined) {
+                    options = _.mapObject(options, (v) => v);
+                    options.dropTriggerIfExists = !!options.ifExists;
+                    delete options.ifExists;
+                }
                 if (options.useTransaction instanceof cls.Transaction) {
                     options.useTransaction.addAction(this);
                     return;
                 }
+                
+                // read options.dropTriggerIfExists
             }
         };
         
