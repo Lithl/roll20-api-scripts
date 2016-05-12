@@ -2795,7 +2795,6 @@ bshields.jsql = (function() {
                     throw new Error('table name required');
                 }
                 super(options, [
-                    new cls.StringBlock(`UPDATE ${tableName}`, options),
                     new cls.SingleTableBlock(tableName, null, options),
                     new cls.SetFieldBlock(options),
                     new cls.WhereBlock(options)
@@ -2813,6 +2812,59 @@ bshields.jsql = (function() {
                     options.useTransaction.addAction(this);
                     return;
                 }
+                
+                let tableAlias, tableName, schemaName, conditions, fields, values;
+                _.each(this.blocks, (b) => {
+                    if (b instanceof cls.SingleTableBlock) {
+                        tableName = b.tables[0].table;
+                        schemaName = b.tables[0].schema || 'default';
+                        tableAlias = b.tables[0].alias;
+                    } else if (b instanceof cls.SetFieldBlock) {
+                        fields = b.fields;
+                        values = b.values;
+                    } else if (b instanceof cls.WhereBlock) {
+                        conditions = b.conditions;
+                    }
+                });
+                
+                if (fields.length !== values.length) throw new Error(`fields [${fields.join(',')}] and values [${values.join(',')}] must be same length`);
+                
+                let db = state.bshields.jsql.db;
+                if (!(db.schemas[schemaName] && db.schemas[schemaName][tableName])) {
+                    throw new Error(`No table named ${schemaName}.${tableName}`);
+                }
+                let table = cls.deepCopy(db.schemas[schemaName][tableName]),
+                    tables = () => table;
+                
+                // where
+                _.each(conditions, (c) => {
+                    let matches = cls.evaluate(c, tables);
+                    table.rows = _.filter(table.rows, (r, i) => !!matches[i]);
+                });
+                
+                // set fields
+                _.each(fields, (name, i) => {
+                    let val = values[i],
+                        idx = _.map(table.fields, (f) => f.name).indexOf(name);
+                    
+                    if (idx < 0) throw new Error(`Unrecognized field ${name}`);
+                    _.each(table.rows, (r) => {
+                        r.data[idx] = val;
+                    });
+                });
+                
+                let rowsToUpdate = _.map(table.rows, (r) => r.rowid);
+                db.schemas[schemaName][tableName].rows = _.map(db.schemas[schemaName][tableName].rows, (r) => {
+                    let idx = rowsToUpdate.indexOf(r.rowid);
+                    if (idx < 0) {
+                        return r;
+                    } else {
+                        return table.rows[idx];
+                    }
+                });
+                db.changes = rowsToUpdate.length;
+                db.totalChanges += rowsToUpdate.length;
+                return rowsToUpdate.length;
             }
         };
         
