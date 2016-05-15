@@ -1,4 +1,4 @@
-var bshields = bshields || {}, jsql;
+var bshields = bshields || {}, jsql, $;
 bshields.jsql = (function() {
     'use strict';
     
@@ -803,7 +803,12 @@ bshields.jsql = (function() {
             evaluate: function(expr, tables) {
                 return evaluateExpression(expr, tables, cls);
             },
-            deepCopy: deepCopy
+            deepCopy: deepCopy,
+            
+            toJSON: function() {
+                return `registerTypeHandler(type, handler); getTypeHandler(type, handlers); getHandlerFor(value, handlers); uuid(); evaluate(expr, tables); \
+deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptions).replace(/"(.+?)":/g, '$1:')}; globalTypeHandlers`;
+            }
         };
         
         cls.registerTypeHandler('number', (v) => parseFloat(v));
@@ -2306,6 +2311,9 @@ bshields.jsql = (function() {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
+                if (tableName === 'triggers') {
+                    throw new Error('invalid table name');
+                }
                 if (options && options.ifNotExists !== undefined) {
                     options = _.mapObject(options, (v) => v);
                     options.createTableIfNotExists = !!options.ifNotExists;
@@ -2382,6 +2390,9 @@ bshields.jsql = (function() {
             constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
+                }
+                if (tableName === 'triggers') {
+                    throw new Error('invalid table name');
                 }
                 super(options, [
                     new cls.SingleTableBlock(tableName, null, options),
@@ -2514,6 +2525,9 @@ bshields.jsql = (function() {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
                 }
+                if (tableName === 'triggers') {
+                    throw new Error('invalid table name');
+                }
                 if (options && options.ifExists !== undefined) {
                     options = _.mapObject(options, (v) => v);
                     options.dropTableIfExists = !!options.ifExists;
@@ -2580,6 +2594,9 @@ bshields.jsql = (function() {
             constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
+                }
+                if (tableName === 'triggers') {
+                    throw new Error('invalid table name');
                 }
                 super(options, [
                     new cls.SingleTableBlock(tableName, null, options),
@@ -2690,6 +2707,9 @@ bshields.jsql = (function() {
             constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
+                }
+                if (tableName === 'triggers') {
+                    throw new Error('invalid table name');
                 }
                 super(options, [
                     new cls.SingleTableBlock(tableName, null, options),
@@ -2805,6 +2825,9 @@ bshields.jsql = (function() {
             constructor(tableName, options) {
                 if (!tableName || tableName.length === 0 || tableName.lastIndexOf('.') === tableName.length) {
                     throw new Error('table name required');
+                }
+                if (tableName === 'triggers') {
+                    throw new Error('invalid table name');
                 }
                 super(options, [
                     new cls.SingleTableBlock(tableName, null, options),
@@ -3104,7 +3127,13 @@ bshields.jsql = (function() {
             // expressions
             expr: function(expr, options) { return new cls.Expression(expr, options); },
             
-            cls: cls
+            cls: cls,
+            toJSON: function() {
+                return `${this.VERSION}: createTable(tableName[, options]); alterTable(tableName[, options]); dropTable(tableName[, options]); \
+delete(tableName[, options]); insert(tableName[, options]); select([options]); update(tableName[, options]); \
+transaction([options]); createTrigger(triggerName, tableName[, options]); dropTrigger(triggerName[, options]); \
+expr([expr[, options]]); cls: {${cls.toJSON()}}`;
+            }
         };
     }
     
@@ -3148,3 +3177,7 @@ on('ready', function() {
     bshields.jsql.checkInstall();
 });
 jsql = jsql || bshields.jsql.sql;
+if ($ === undefined) {
+    $ = function (expr, options) { return bshields.jsql.sql.expr(expr, options); }
+    _.each(bshields.jsql.sql, (v, k) => { $[k] = v; });
+}
