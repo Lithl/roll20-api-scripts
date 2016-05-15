@@ -2685,11 +2685,35 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     table.rows = table.rows.slice(0, parseInt(limit));
                 }
                 
-                let rowsToDelete = _.map(table.rows, (r) => r.rowid);
-                db.schemas[schemaName][tableName].rows = _.reject(db.schemas[schemaName][tableName].rows, (r) => _.contains(rowsToDelete, r.rowid));
-                db.changes = rowsToDelete.length;
-                db.totalChanges += rowsToDelete.length;
-                return rowsToDelete.length;
+                // before delete triggers
+                let deleteTriggers = _.filter(db.schemas[schemaName].triggers, (t) =>
+                        t.table === tableName && t.action === cls.TriggerEventBlock.Action.Delete),
+                    beforeDelete = _.filter(deleteTriggers, (t) => t.when === cls.TriggerEventBlock.When.Before),
+                    insteadOfDelete = _.filter(deleteTriggers, (t) => t.when === cls.TriggerEventBlock.When.Instead),
+                    afterDelete = _.filter(deleteTriggers, (t) => t.when === cls.TriggerEventBlock.When.After);
+                _.each(beforeDelete, (t) => _.each(t.callbacks, (c) => c(table.rows)));
+                
+                let rowsToDelete = _.map(table.rows, (r) => r.rowid),
+                    deleteResult;
+                if (insteadOfDelete.length > 0) {
+                    deleteResult = 0;
+                    _.each(insteadOfDelete, (t) => _.each(t.callbacks, (c) => {
+                            let result = parseInt(c(table.rows));
+                            if (!isNaN(result)) {
+                                deleteResult += result;
+                            }
+                        }));
+                    db.changes = deleteResult;
+                    db.totalChanges += deleteResult;
+                } else {
+                    db.schemas[schemaName][tableName].rows = _.reject(db.schemas[schemaName][tableName].rows, (r) => _.contains(rowsToDelete, r.rowid));
+                    db.changes = rowsToDelete.length;
+                    db.totalChanges += rowsToDelete.length;
+                    deleteResult = rowsToDelete.length;
+                }
+                
+                _.each(afterDelete, (t) => _.each(t.callbacks, (c) => c(table.rows)));
+                return deleteResult;
             }
         };
         
