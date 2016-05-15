@@ -2685,7 +2685,6 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     table.rows = table.rows.slice(0, parseInt(limit));
                 }
                 
-                // before delete triggers
                 let deleteTriggers = _.filter(db.schemas[schemaName].triggers, (t) =>
                         t.table === tableName && t.action === cls.TriggerEventBlock.Action.Delete),
                     beforeDelete = _.filter(deleteTriggers, (t) => t.when === cls.TriggerEventBlock.When.Before),
@@ -2703,16 +2702,14 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                                 deleteResult += result;
                             }
                         }));
-                    db.changes = deleteResult;
-                    db.totalChanges += deleteResult;
                 } else {
-                    db.schemas[schemaName][tableName].rows = _.reject(db.schemas[schemaName][tableName].rows, (r) => _.contains(rowsToDelete, r.rowid));
-                    db.changes = rowsToDelete.length;
-                    db.totalChanges += rowsToDelete.length;
                     deleteResult = rowsToDelete.length;
+                    db.schemas[schemaName][tableName].rows = _.reject(db.schemas[schemaName][tableName].rows, (r) => _.contains(rowsToDelete, r.rowid));
                 }
                 
                 _.each(afterDelete, (t) => _.each(t.callbacks, (c) => c(table.rows)));
+                db.changes = deleteResult;
+                db.totalChanges += deleteResult;
                 return deleteResult;
             }
         };
@@ -2830,11 +2827,34 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     }
                     insertRow = { rowid: rowid, data: insertRow };
                     
-                    table.rows.push(insertRow);
-                    db.changes = 1;
-                    db.totalChanges++;
-                    db.lastRowid = rowid;
-                    return 1;
+                    let insertTriggers = _.filter(db.schemas[schemaName].triggers, (t) =>
+                            t.table === tableName && t.action === cls.TriggerEventBlock.Action.Insert),
+                        beforeInsert = _.filter(insertTriggers, (t) => t.when === cls.TriggerEventBlock.When.Before),
+                        insteadOfInsert = _.filter(insertTriggers, (t) => t.when === cls.TriggerEventBlock.When.Instead),
+                        afterInsert = _.filter(insertTriggers, (t) => t.when === cls.TriggerEventBlock.When.After);
+                    _.each(beforeInsert, (t) => _.each(t.callbacks, (c) => c([insertRow])));
+                    
+                    let insertResult;
+                    if (insteadOfInsert.length > 0) {
+                        insertResult = 0;
+                        let prevLastRowid = db.lastRowid;
+                        _.each(insteadOfInsert, (t) => _.each(t.callbacks, (c) => {
+                                let result = parseInt(c([insertRow]));
+                                if (!isNaN(result)) {
+                                    insertResult += result;
+                                }
+                            }));
+                        if (insertResult && db.lastRowid === prevLastRowid) db.lastRowid = rowid;
+                    } else {
+                        insertResult = 1;
+                        table.rows.push(insertRow);
+                        db.lastRowid = rowid;
+                    }
+                    
+                    _.each(afterInsert, (t) => _.each(t.callbacks, (c) => c([insertRow])));
+                    db.changes = insertResult;
+                    db.totalChanges += insertResult;
+                    return insertResult;
                 }
             }
         };
