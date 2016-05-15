@@ -241,6 +241,15 @@ bshields.jsql = (function() {
                     if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseInt(v) & parseInt(operands[0]));
                     return operands[0] === null || operands[1] === null ? null : parseInt(operands[0]) & parseInt(operands[1]);
                 }
+            case operators.BitXor:
+                if (tmpA && tmpB) {
+                    if (tmpA.length !== tmpB.length) throw new Error('bitXor operands are not of same length');
+                    return _.chain(tmpA).zip(tmpB).map((p) => p[0] === null || p[1] === null ? null : parseInt(p[0]) ^ parseInt(p[1])).value();
+                } else {
+                    if (tmpA) return operands[1] === null ? null : _.map(tmpA, (v) => v === null ? null : parseInt(v) ^ parseInt(operands[1]));
+                    if (tmpB) return operands[0] === null ? null : _.map(tmpB, (v) => v === null ? null : parseInt(v) ^ parseInt(operands[0]));
+                    return operands[0] === null || operands[1] === null ? null : parseInt(operands[0]) ^ parseInt(operands[1]);
+                }
             case operators.BitLeft:
                 if (tmpA && tmpB) {
                     if (tmpA.length !== tmpB.length) throw new Error('bitLeft operands are not of same length');
@@ -622,12 +631,16 @@ bshields.jsql = (function() {
             case operators.Typeof:
                 if (tmp) return _.map(tmp, (v) => {
                     if (v === null) return 'null';
+                    if (v === !!v) return 'boolean'
+                    if (v instanceof Date) return 'date';
                     if (_.isString(v)) return 'text';
                     if (parseInt(v) === parseFloat(v)) return 'integer';
                     if (!isNaN(parseFloat(v))) return 'real';
                     return 'blob';
                 });
                 if (operands[0] === null) return 'null';
+                if (operands[0] === !!operands[0]) return 'boolean';
+                if (operands[0] instanceof Date) return 'date';
                 if (_.isString(operands[0])) return 'text';
                 if (parseInt(operands[0]) === parseFloat(operands[0])) return 'integer';
                 if (!isNaN(parseFloat(operands[0]))) return 'real';
@@ -787,7 +800,7 @@ bshields.jsql = (function() {
                 dropTriggerIfExists: true,
                 useTransaction: null,
                 selectAsObjects: true,
-                triggerParamsAreObjects: true
+                triggerParamsAsObjects: true
             },
             
             registerTypeHandler: function(type, handler) {
@@ -980,6 +993,18 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     return this;
                 } else {
                     return (new cls.Expression(null, this.options)).bitAnd(this, expr1);
+                }
+            }
+            
+            bitXor(expr1, expr2) {
+                if (expr2 !== undefined) {
+                    this.operation = {
+                        operator: cls.Expression.Operator.BitXor,
+                        operands: [expr1, expr2]
+                    };
+                    return this;
+                } else {
+                    return (new cls.Expression(null, this.options)).bitXor(this, expr1);
                 }
             }
             
@@ -1219,7 +1244,7 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     };
                     return this;
                 } else {
-                    return (new cls.Expression(null, this.operands)).avg(this);
+                    return (new cls.Expression(null, this.options)).avg(this);
                 }
             }
             
@@ -1533,6 +1558,7 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             // binary bitwise
             BitOr: {},              // a | b
             BitAnd: {},             // a & b
+            BitXor: {},             // a ^ b
             BitLeft: {},            // a << b
             BitRight: {},           // a >> b
             // binary logic
@@ -1645,7 +1671,7 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             pub_from(table, alias) {
                 var qualifiedName = parseQualifiedName(table);
                 this.tables.push({
-                    schema: qualifiedName.schema || null,
+                    schema: qualifiedName.schema || 'default',
                     table: qualifiedName.table,
                     alias: (qualifiedName.alias || alias) || null
                 });
@@ -1666,6 +1692,10 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                 var isNumeric = typeHandler === Number || (typeof typeHandler === 'string' && typeHandler.toLowerCase() === 'number');
                 options = _.extend({}, this.options, options || {});
                 
+                if (!name || !_.isString(name) || name.length === 0) {
+                    throw new Error('name must be a string');
+                }
+                
                 if (typeof typeHandler === 'string') {
                     typeHandler = cls.getTypeHandler(typeHandler.toLowerCase(), options.typeHandlers);
                 } else if (typeHandler === Number) {
@@ -1680,24 +1710,37 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     typeHandler = cls.getTypeHandler(Date);
                 } else if (typeof typeHandler === 'function') {
                     try { typeHandler = cls.getHandlerFor(new typeHandler.constructor(), options.typeHandlers); }
-                    catch (e) {}
+                    catch (e) { throw e; }
+                    if (!typeHandler) {
+                        throw new Error(`unknown typeHandler ${typeHandler}`);
+                    }
                 } else {
-                    typeHandler = undefined;
+                    throw new Error(`unknown type handler ${typeHandler}`);
                 }
                 
                 this.fields.push({
                     name: name,
                     type: typeHandler,
                     autoincrement: !!autoincrement && isNumeric,
-                    index: options.autoincrementStartValue
+                    index: parseInt(options.autoincrementStartValue)
                 });
+            }
+            
+            pub_fields(fields, options) {
+                if (!_.isObject(fields)) throw new Error('fields must be a collection of name:handler pairs');
+                _.each(fields, (name, handler) => { this.pub_field(name, handler, false, options); });
             }
         };
         
         cls.DropFieldBlock = class DropFieldBlock extends cls.AbstractFieldBlock {
             constructor(options) { super(options); }
             
-            pub_drop(name) { this.fields.push(name); }
+            pub_drop(name) {
+                if(!name || !_.isString(name) || name.length === 0) {
+                    throw new Error('name must be non-empty');
+                }
+                this.fields.push(name);
+            }
         };
         
         cls.SetFieldBlock = class SetFieldBlock extends cls.AbstractFieldBlock {
@@ -1709,13 +1752,13 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             // field(String)
             // field(String, obj)
             pub_field(name, value) {
-                if (_.isString(name)) {
+                if (_.isString(name) && name.length > 0) {
                     this.fields.push(name);
                     if (value !== undefined) {
                         this.values.push(value);
                     }
                 } else {
-                    throw new Error(`Expected string but got ${typeof name}`);
+                    throw new Error(`Expected non-empty string but got '${typeof name}'`);
                 }
             }
             
@@ -1733,9 +1776,15 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             // fields(Object)
             // fields(...String)
             pub_fields(names, values) {
+                if (!names) {
+                    throw new Error('must supply at least one field');
+                }
                 if (_.isArray(names)) {
-                    if (!_.every(names, (n) => _.isString(n))) {
-                        throw new Error('Names must be an array of strings');
+                    if (!_.every(names, (n) => _.isString(n) && n.length > 0)) {
+                        throw new Error('Names must be an array of non-empty strings');
+                    }
+                    if (names.length === 0) {
+                        throw new Error('must supply at least one field');
                     }
                     Array.prototype.push.apply(this.fields, names);
                     
@@ -1746,13 +1795,20 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                         Array.prototype.push.apply(this.values, values);
                     }
                 } else if (_.isObject(names)) {
+                    if (_.keys(names).length === 0) {
+                        throw new Error('must supply at least one field');
+                    }
+                    if (!_.chain(names).keys().every((n) => n.length > 0)) {
+                        throw new Error('keys must be non-empty');
+                    }
+                    
                     _.each(names, (v, n) => {
                         this.fields.push(n);
                         this.values.push(v);
                     });
                 } else {
-                    if (!_.every(arguments, (n) => _.isString(n))) {
-                        throw new Error('Arguments must all be strings');
+                    if (!_.every(arguments, (n) => _.isString(n) && n.length > 0)) {
+                        throw new Error('Arguments must all be non-empty strings');
                     }
                     Array.prototype.push.apply(this.fields, arguments);
                 }
@@ -1761,7 +1817,13 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             // values(Array{obj})
             // values(...obj)
             pub_values(values) {
+                if (values === undefined) {
+                    throw new Error('must supply a value');
+                }
                 if (_.isArray(values)) {
+                    if (values.length === 0) {
+                        throw new Error('must supply a value');
+                    }
                     Array.prototype.push.apply(this.values, values);
                 } else {
                     Array.prototype.push.apply(this.values, arguments);
@@ -1773,6 +1835,12 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             constructor(options) { super(options); }
             
             pub_renameField(from, to) {
+                if (!from || !_.isString(from) || from.length === 0) {
+                    throw new Error('from field must be non-empty');
+                }
+                if (!to || !_.isString(to) || to.length === 0) {
+                    throw new Error('to field must be non-empty');
+                }
                 this.fields.push({
                     field: from,
                     to: to
@@ -1780,6 +1848,9 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             }
             
             pub_incrementField(field, increment) {
+                if (!field || !_.isString(field) || field.length === 0) {
+                    throw new Error('field must be non-empty');
+                }
                 this.fields.push({
                     field: field,
                     increment: !!increment
@@ -1790,6 +1861,9 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                 options = _.extend({}, this.options, options || {});
                 index = parseInt(index);
                 if (isNaN(index)) index = options.autoincrementStartValue;
+                if (!field || !_.isString(field) || field.length === 0) {
+                    throw new Error('field must be non-empty');
+                }
                 this.fields.push({
                     field: field,
                     index: index
@@ -1799,6 +1873,10 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             pub_changeFieldType(field, typeHandler, options) {
                 var isNumeric = typeHandler === Number || (typeof typeHandler === 'string' && typeHandler.toLowerCase() === 'number');
                 options = _.extend({}, this.options, options || {});
+                
+                if (!field || !_.isString(field) || field.length === 0) {
+                    throw new Error('field must be non-empty');
+                }
                 
                 if (typeof typeHandler === 'string') {
                     typeHandler = cls.getTypeHandler(typeHandler.toLowerCase(), options.typeHandlers);
@@ -1814,9 +1892,12 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     typeHandler = cls.getTypeHandler(Date);
                 } else if (typeof typeHandler === 'function') {
                     try { typeHandler = cls.getHandlerFor(new typeHandler.constructor(), options.typeHandlers); }
-                    catch (e) {}
+                    catch (e) { throw e; }
+                    if (!typeHandler) {
+                        throw new Error(`unknown typeHandler ${typeHandler}`);
+                    }
                 } else {
-                    typeHandler = undefined;
+                    throw new Error(`unknown typeHandler ${typeHandler}`);
                 }
                 typeHandler = typeHandler.toString();
                 
@@ -1866,7 +1947,10 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                 if (this.table) {
                     throw new Error('rename may only be called once');
                 }
-                this.table = '' + tableName;
+                if (!tableName || !_.isString(tableName) || tableName.length === 0) {
+                    throw new Error('name must be a non-empty string');
+                }
+                this.table = tableName;
             }
         };
         
@@ -1877,6 +1961,9 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             }
             
             pub_where(expr) {
+                if (expr === undefined) {
+                    throw new Error('expression is required');
+                }
                 if (expr instanceof cls.Expression) {
                     this.conditions.push(expr);
                 } else if (expr instanceof String) {
@@ -1893,6 +1980,9 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             constructor(options) { super(options); }
             
             pub_orderBy(field, descending) {
+                if (!_.isString(field) || field.length === 0) {
+                    throw new Error('field is required');
+                }
                 field = parseQualifiedName(field, true);
                 descending = !!descending;
                 this.fields.push({
@@ -1913,13 +2003,23 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
         cls.LimitBlock = class LimitBlock extends cls.AbstractNumberBlock {
             constructor(options) { super(options); }
             
-            pub_limit(limit) { this.value = limit instanceof cls.Expression ? limit : parseInt(limit); }
+            pub_limit(limit) {
+                if (limit === undefined) {
+                    throw new Error('limit is required');
+                }
+                this.value = limit instanceof cls.Expression ? limit : parseInt(limit);
+            }
         };
         
         cls.OffsetBlock = class OffsetBlock extends cls.AbstractNumberBlock {
             constructor(options) { super(options); }
             
-            pub_offset(offset) { this.value = offset instanceof cls.Expression ? offset : parseInt(offset); }
+            pub_offset(offset) {
+                if (offset === undefined) {
+                    throw new Error('offset is required');
+                }
+                this.value = offset instanceof cls.Expression ? offset : parseInt(offset);
+            }
         };
         
         cls.SubqueryBlock = class SubqueryBlock extends cls.Block {
@@ -2051,16 +2151,20 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                             break;
                         case 'update':
                             this.action = cls.TriggerEventBlock.Action.Update;
-                            if (columns.length && _.every(columns, (c) => _.isString(c))) {
+                            if (columns.length && _.every(columns, (c) => _.isString(c) && c.length > 0)) {
                                 this.columns = columns;
                             }
                             break;
+                        default:
+                            throw new Error(`Unknown action ${action}`);
                     }
                 } else if (_.contains(cls.TriggerEventBlock.Action, action)) {
                     this.action = action;
-                    if (this.action === cls.TriggerEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c))) {
+                    if (this.action === cls.TriggerEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c) && c.length > 0)) {
                         this.columns = columns;
                     }
+                } else if (action) {
+                    throw new Error(`Unknown action ${action}`);
                 }
             }
             
@@ -2078,16 +2182,20 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                             break;
                         case 'update':
                             this.action = cls.TriggerEventBlock.Action.Update;
-                            if (columns.length && _.every(columns, (c) => _.isString(c))) {
+                            if (columns.length && _.every(columns, (c) => _.isString(c) && c.length > 0)) {
                                 this.columns = columns;
                             }
                             break;
+                        default:
+                            throw new Error(`Unknown action ${action}`);
                     }
                 } else if (_.contains(cls.TriggerEventBlock.Action, action)) {
                     this.action = action;
-                    if (this.action === cls.TriggerEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c))) {
+                    if (this.action === cls.TriggerEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c) && c.length > 0)) {
                         this.columns = columns;
                     }
+                } else if (action) {
+                    throw new Error(`Unknown action ${action}`);
                 }
             }
             
@@ -2105,16 +2213,20 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                             break;
                         case 'update':
                             this.action = cls.TriggerEventBlock.Action.Update;
-                            if (columns.length && _.every(columns, (c) => _.isString(c))) {
+                            if (columns.length && _.every(columns, (c) => _.isString(c) && c.length > 0)) {
                                 this.columns = columns;
                             }
                             break;
+                        default:
+                            throw new Error(`Unknown action ${action}`);
                     }
                 } else if (_.contains(cls.TriggerEventBlock.Action, action)) {
                     this.action = action;
-                    if (this.action === cls.TriggerEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c))) {
+                    if (this.action === cls.TriggerEventBlock.Action.Update && columns.length && _.every(columns, (c) => _.isString(c) && c.length > 0)) {
                         this.columns = columns;
                     }
+                } else if (action) {
+                    throw new Error(`Unknown action ${action}`);
                 }
             }
             
@@ -2133,9 +2245,13 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                         case 'instead of':
                             this.when = cls.TriggerEventBlock.When.Instead;
                             break;
+                        default:
+                            throw new Error(`Unknown timing ${when}`);
                     }
                 } else if (_.contains(cls.TriggerEventBlock.When, when)) {
                     this.when = when;
+                } else if (when) {
+                    throw new Error(`Unknown timing ${when}`);
                 }
             }
             
@@ -2154,9 +2270,13 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                         case 'instead of':
                             this.when = cls.TriggerEventBlock.When.Instead;
                             break;
+                        default:
+                            throw new Error(`Unknown timing ${when}`);
                     }
                 } else if (_.contains(cls.TriggerEventBlock.When, when)) {
                     this.when = when;
+                } else if (when) {
+                    throw new Error(`Unknown timing ${when}`);
                 }
             }
             
@@ -2183,8 +2303,10 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     this.when = when;
                 }
                 
-                if (_.every(columns, (c) => _.isString(c))) {
+                if (_.every(columns, (c) => _.isString(c) && c.length > 0)) {
                     this.columns = columns;
+                } else if (columns.length > 0) {
+                    throw new Error('columns must be non-empty strings');
                 }
             }
             
@@ -2260,7 +2382,15 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                 this.callbacks = [];
             }
             
-            pub_function(callback) { this.callbacks.push(callback); }
+            pub_function(callback) {
+                if (_.isString(callback) && !/^(?:function)?\s*\w*\s*\((?:(?:\s*,\s*)?[a-zA-Z_$][a-zA-Z0-9_$]*)*\)\s*(?:=>)?\s*\{?.*\}?$/.test(callback)) {
+                    throw new Error('callback string does not represent a function');
+                }
+                if (!_.isString(callback) && !_.isFunction(callback)) {
+                    throw new Error('callback must be function or string');
+                }
+                this.callbacks.push(callback);
+            }
         };
         
         /***********************************************************************
@@ -2808,7 +2938,7 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                             sv = insertObj[f.name] === null ? null : typeHandler(insertObj[f.name]);
                         
                         if (f.autoincrement) {
-                            if (sv === null || insertObj[f.name] === undefined || sv < 0) {
+                            if (sv === null || insertObj[f.name] === undefined || sv <= 0) {
                                 insertRow.push(f.index++);
                             } else {
                                 insertRow.push(sv);
@@ -2987,7 +3117,6 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
         cls.Select = class Select extends cls.QueryBuilder {
             constructor(options) {
                 super(options, [
-                    new cls.StringBlock(`SELECT`, options),
                     new cls.GetFieldBlock(options),
                     new cls.MultipleTableBlock(options),
                     new cls.SubqueryBlock([cls.Select], options),
@@ -3002,10 +3131,7 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             
             execute(options) {
                 options = _.extend({}, this.options, options || {});
-                if (options.useTransaction instanceof cls.Transaction) {
-                    options.useTransaction.addAction(this);
-                    return;
-                }
+                
             }
         };
         
@@ -3033,18 +3159,41 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                         enumerable: false,
                         configurable: false,
                         value: true
+                    },
+                    mirroedDb: {
+                        writable: true,
+                        enumerable: false,
+                        configurable: false,
+                        value: null
                     }
                 });
             }
             
-            rollback() { this.actions = []; }
-            
-            begin() {
+            rollback() {
                 this.actions = [];
-                this.isOpen = true;
+                if (this.mirroredDb !== null) {
+                    state.bshields.jsql.db = mirroredDb;
+                    mirroredDb = null;
+                }
+                return this;
             }
             
-            addAction(action) { this.actions.push(action); }
+            reset() {
+                this.actions = [];
+                this.isOpen = true;
+                return this;
+            }
+            
+            addAction(action) {
+                if (!action) {
+                    throw new Error('action required');
+                }
+                if (!(action instanceof cls.QueryBuilder)) {
+                    throw new Error('action must be a QueryBuilder object');
+                }
+                this.actions.push(action);
+                return this;
+            }
             
             commit(options) {
                 if (!this.isOpen) {
@@ -3056,10 +3205,18 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     options.useTransaction = null;
                 }
                 
-                _.each(this.actions, (a) => {
-                    a.execute(options);
-                });
-                this.isOpen = false;
+                this.mirroredDb = cls.deepCopy(state.bshields.jsql.db);
+                try {
+                    _.each(this.actions, (a) => {
+                        a.execute(options);
+                    });
+                    this.isOpen = false;
+                    this.mirroredDb = null;
+                    return true;
+                } catch (e) {
+                    this.rollback();
+                    return false;
+                }
             }
         };
         
@@ -3164,6 +3321,9 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                         action = b.action;
                         columns = b.columns;
                     } else if (b instanceof cls.FunctionBlock) {
+                        if (b.callbacks.length === 0) {
+                            throw new Error('no callbacks specified');
+                        }
                         callbacks = _.chain(b.callbacks)
                             .map((f) => f.toString())
                             .map((s) => {
