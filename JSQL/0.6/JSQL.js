@@ -820,11 +820,7 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
         /***********************************************************************
          * Base classes
          **********************************************************************/
-        cls.Cloneable = class Cloneable {
-            clone() {
-                
-            }
-        };
+        cls.Cloneable = class Cloneable { clone() { return cls.deepCopy(this); } };
         
         cls.BaseBuilder = class BaseBuilder extends cls.Cloneable {
             constructor(options) {
