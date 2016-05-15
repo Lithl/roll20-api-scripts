@@ -2934,6 +2934,8 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     table.rows = _.filter(table.rows, (r, i) => !!matches[i]);
                 });
                 
+                let oldTableRows = cls.deepCopy(table.rows);
+                
                 // set fields
                 _.each(fields, (name, i) => {
                     let val = values[i],
@@ -2945,18 +2947,40 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     });
                 });
                 
-                let rowsToUpdate = _.map(table.rows, (r) => r.rowid);
-                db.schemas[schemaName][tableName].rows = _.map(db.schemas[schemaName][tableName].rows, (r) => {
-                    let idx = rowsToUpdate.indexOf(r.rowid);
-                    if (idx < 0) {
-                        return r;
-                    } else {
-                        return table.rows[idx];
-                    }
-                });
-                db.changes = rowsToUpdate.length;
-                db.totalChanges += rowsToUpdate.length;
-                return rowsToUpdate.length;
+                let updateTriggers = _.filter(db.schemas[schemaName].triggers, (t) =>
+                        t.table === tableName && t.action === cls.TriggerEventBlock.Action.Update &&
+                        (t.columns === null || t.columns.length === 0 || _.intersection(t.columns, fields).length > 0)),
+                    beforeUpdate = _.filter(updateTriggers, (t) => t.when === cls.TriggerEventBlock.When.Before),
+                    insteadOfUpdate = _.filter(updateTriggers, (t) => t.when === cls.TriggerEventBlock.When.Instead),
+                    afterUpdate = _.filter(updateTriggers, (t) => t.when === cls.TriggerEventBlock.When.After);
+                _.each(beforeUpdate, (t) => _.each(t.callbacks, (c) => c(table.rows, oldTableRows)));
+                
+                let rowsToUpdate = _.map(table.rows, (r) => r.rowid),
+                    updateResult;
+                if (insteadOfUpdate.length > 0) {
+                    updateResult = 0;
+                    _.each(insteadOfUpdate, (t) => _.each(t.callbacks, (c) => {
+                            let result = parseInt(c(table.rows, oldTableRows));
+                            if (!isNaN(result)) {
+                                updateResult += result;
+                            }
+                        }));
+                } else {
+                    updateResult = rowsToUpdate.length;
+                    db.schemas[schemaName][tableName].rows = _.map(db.schemas[schemaName][tableName].rows, (r) => {
+                        let idx = rowsToUpdate.indexOf(r.rowid);
+                        if (idx < 0) {
+                            return r;
+                        } else {
+                            return table.rows[idx];
+                        }
+                    });
+                }
+                
+                _.each(afterUpdate, (t) => _.each(t.callbacks, (c) => c(table.rows, oldTableRows)));
+                db.changes = updateResult;
+                db.totalChanges += updateResult;
+                return updateResult;
             }
         };
         
