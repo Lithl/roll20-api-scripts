@@ -1,4 +1,4 @@
-var bshields = bshields || {}, jsql, $;
+var bshields = bshields || {}, jsql, $, $$;
 bshields.jsql = (function() {
     'use strict';
     
@@ -3491,10 +3491,78 @@ expr([expr[, options]]); cls: {${cls.toJSON()}}`;
 }());
 
 on('ready', function() {
+    'use strict';
+    
     bshields.jsql.checkInstall();
 });
 jsql = jsql || bshields.jsql.sql;
 if ($ === undefined) {
     $ = function (expr, options) { return bshields.jsql.sql.expr(expr, options); }
     _.each(bshields.jsql.sql, (v, k) => { $[k] = v; });
+}
+if ($$ === undefined) {
+    (function() {
+        'use strict';
+        
+        let sql = bshields.jsql.sql;
+        $$ = {
+            identity: function() { var e = sql.expr(); return e.identity.apply(e, arguments); },
+            negate: function() { var e = sql.expr(); return e.negate.apply(e, arguments); },
+            bitNot: function() { var e = sql.expr(); return e.bitNot.apply(e, arguments); },
+            not: function() { var e = sql.expr(); return e.not.apply(e, arguments); },
+            plus: function() { var e = sql.expr(); return e.plus.apply(e, arguments); },
+            minus: function() { var e = sql.expr(); return e.minus.apply(e, arguments); },
+            multiply: function() { var e = sql.expr(); return e.multiply.apply(e, arguments); },
+            divide: function() { var e = sql.expr(); return e.divide.apply(e, arguments); },
+            modulus: function() { var e = sql.expr(); return e.modulus.apply(e, arguments); },
+            bitOr: function() { var e = sql.expr(); return e.bitOr.apply(e, arguments); },
+            bitAnd: function() { var e = sql.expr(); return e.bitAnd.apply(e, arguments); },
+            bitXor: function() { var e = sql.expr(); return e.bitXor.apply(e, arguments); },
+            bitLeft: function() { var e = sql.expr(); return e.bitLeft.apply(e, arguments); },
+            bitRight: function() { var e = sql.expr(); return e.bitRight.apply(e, arguments); },
+            or: function() { var e = sql.expr(); return e.or.apply(e, arguments); },
+            and: function() { var e = sql.expr(); return e.and.apply(e, arguments); },
+            lessThan: function() { var e = sql.expr(); return e.lessThan.apply(e, arguments); },
+            lessThanEquals: function() { var e = sql.expr(); return e.lessThanEquals.apply(e, arguments); },
+            greaterThan: function() { var e = sql.expr(); return e.greaterThan.apply(e, arguments); },
+            greaterThanEquals: function() { var e = sql.expr(); return e.greaterThanEquals.apply(e, arguments); },
+            equals: function() { var e = sql.expr(); return e.equals.apply(e, arguments); },
+            notEqualTo: function() { var e = sql.expr(); return e.notEqualTo.apply(e, arguments); },
+            is: function() { var e = sql.expr(); return e.is.apply(e, arguments); },
+            isNot: function() { var e = sql.expr(); return e.isNot.apply(e, arguments); },
+            in: function() { var e = sql.expr(); return e.in.apply(e, arguments); },
+            notIn: function() { var e = sql.expr(); return e.notIn.apply(e, arguments); },
+            like: function() { var e = sql.expr(); return e.like.apply(e, arguments); },
+            notLike: function() { var e = sql.expr(); return e.notLike.apply(e, arguments); },
+            glob: function() { var e = sql.expr(); return e.glob.apply(e, arguments); },
+            notGlob: function() { var e = sql.expr(); return e.notGlob.apply(e, arguments); },
+            regex: function() { var e = sql.expr(); return e.regex.apply(e, arguments); },
+            avg: function() { var e = sql.expr(); return e.avg.apply(e, arguments); },
+            count: function() { var e = sql.expr(); return e.count.apply(e, arguments); },
+            groupConcat: function() { var e = sql.expr(); return e.groupConcat.apply(e, arguments); },
+            max: function() { var e = sql.expr(); return e.max.apply(e, arguments); },
+            min: function() { var e = sql.expr(); return e.min.apply(e, arguments); },
+            sum: function() { var e = sql.expr(); return e.sum.apply(e, arguments); },
+            total: function() { var e = sql.expr(); return e.total.apply(e, arguments); },
+            abs: function() { var e = sql.expr(); return e.abs.apply(e, arguments); },
+            changes: function() { var e = sql.expr(); return e.changes.apply(e, arguments); },
+            char: function() { var e = sql.expr(); return e.char.apply(e, arguments); },
+            coalesce: function() { var e = sql.expr(); return e.coalesce.apply(e, arguments); },
+            ifnull: function() { var e = sql.expr(); return e.ifnull.apply(e, arguments); },
+            lastInsertRowid: function() { var e = sql.expr(); return e.lastInsertRowid.apply(e, arguments); },
+            length: function() { var e = sql.expr(); return e.length.apply(e, arguments); },
+            lower: function() { var e = sql.expr(); return e.lower.apply(e, arguments); },
+            ltrim: function() { var e = sql.expr(); return e.ltrim.apply(e, arguments); },
+            nullif: function() { var e = sql.expr(); return e.nullif.apply(e, arguments); },
+            random: function() { var e = sql.expr(); return e.random.apply(e, arguments); },
+            replace: function() { var e = sql.expr(); return e.replace.apply(e, arguments); },
+            round: function() { var e = sql.expr(); return e.round.apply(e, arguments); },
+            rtrim: function() { var e = sql.expr(); return e.rtrim.apply(e, arguments); },
+            substr: function() { var e = sql.expr(); return e.substr.apply(e, arguments); },
+            totalChanges: function() { var e = sql.expr(); return e.totalChanges.apply(e, arguments); },
+            trim: function() { var e = sql.expr(); return e.trim.apply(e, arguments); },
+            typeof: function() { var e = sql.expr(); return e.typeof.apply(e, arguments); },
+            upper: function() { var e = sql.expr(); return e.upper.apply(e, arguments); }
+        };
+    }());
 }
