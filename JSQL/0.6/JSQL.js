@@ -1917,7 +1917,26 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
                     schema: qualifiedName.schema || null,
                     table: qualifiedName.table || null,
                     field: qualifiedName.field,
-                    alias: (qualifiedField.alias || alias) || null
+                    alias: (qualifiedName.alias || alias) || null
+                });
+            }
+            
+            pub_fields() {
+                if (arguments.length === 0) {
+                    throw new Error('must supply a field to query');
+                }
+                let args = arguments.length === 1 ? arguments[0].trim().split(/\s*,\s*/) : _.map(arguments, (a) => a.trim());
+                if (!_.all(args, (a) => _.isString(a) && a.length > 0)) {
+                    throw new Error('all fields must be non-empty strings');
+                }
+                let qualifiedNames = _.map(args, (s) => parseQualifiedName(s, true));
+                _.each(qualifiedNames, (qn) => {
+                    this.fields.push({
+                        schema: qn.schema || null,
+                        table: qn.table || null,
+                        field: qn.field,
+                        alias: qn.alias || null
+                    });
                 });
             }
         };
@@ -3132,6 +3151,91 @@ deepCopy(source[, maxDepth]); DefaultOptions: ${JSON.stringify(this.DefaultOptio
             execute(options) {
                 options = _.extend({}, this.options, options || {});
                 
+                let table, fields, joins, conditions, orderBy, limit, offset;
+                _.each(this.blocks, (b) => {
+                    if (b instanceof cls.GetFieldBlock) {
+                        fields = b.fields;
+                    } else if (b instanceof cls.MultipleTableBlock) {
+                        table = b.tables;
+                    } else if (b instanceof cls.SubqueryBlock) {
+                        
+                    } else if (b instanceof cls.JoinBlock) {
+                        joins = b.joins;
+                        if (table.length > 1) {
+                            for (let i = table.length - 1; i >= 1; i--) {
+                                let t = table.pop(),
+                                    name = `${t.schema}.${t.table} ${t.alias || ''}`.trim();
+                                joins.unshift({
+                                    table: name,
+                                    type: cls.JoinBlock.Type.Inner,
+                                    constraints: []
+                                });
+                            }
+                        }
+                    } else if (b instanceof cls.WhereBlock) {
+                        conditions = b.conditions;
+                    } else if (b instanceof cls.GroupByBlock) {
+                        
+                    } else if (b instanceof cls.OrderByBlock) {
+                        orderBy = b.fields;
+                    } else if (b instanceof cls.LimitBlock) {
+                        limit = b.value;
+                    } else if (b instanceof cls.OffsetBlock) {
+                        offset = b.value;
+                    }
+                });
+                table = table[0];
+                
+                let db = state.bshields.jsql.db,
+                    schemaName = table.schema,
+                    tableName = table.table;
+                
+                if (!(db.schemas[schemaName] && db.schemas[schemaName][tableName])) {
+                    throw new Error(`No table named ${schemaName}.${tableName}`);
+                }
+                
+                table = cls.deepCopy(db.schemas[schemaName][tableName]);
+                let tables = () => table;
+                
+                // where
+                _.each(conditions, (c) => {
+                    let matches = cls.evaluate(c, tables);
+                    table.rows = _.filter(table.rows, (r, i) => !!matches[i]);
+                });
+                
+                // order by
+                table.rows = table.rows.sort((a, b) => {
+                    var result = null,
+                        idxs = _.map(orderBy, (o) => _.map(table.fields, (f) => f.name).indexOf(o.field));
+                    _.each(idxs, (j, n) => {
+                        if (result !== null) return;
+                        if (a.data[j] !== b.data[j]) result = a.data[j] < b.data[j] ? -1 : a.data[j] > b.data[j] ? 1 : 0;
+                        if (orderBy[n].descending) result = 1 - result;
+                    });
+                    return result || 0;
+                });
+                
+                // offset
+                if (offset !== null) {
+                    table.rows = table.rows.slice(parseInt(offset));
+                }
+                
+                // limit
+                if (limit !== null) {
+                    table.rows = table.rows.slice(0, parseInt(limit));
+                }
+                
+                if (options.selectAsObjects) {
+                    let result = [];
+                    _.each(table.rows, (r) => {
+                        let rowdata = {};
+                        _.each(table.fields, (f, i) => { rowdata[f.name] = r.data[i]; });
+                        result.push(rowdata);
+                    });
+                    return result;
+                } else {
+                    return _.pluck(table.rows, 'data');
+                }
             }
         };
         
