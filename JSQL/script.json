@@ -1,0 +1,14 @@
+{
+  "name": "JavaScript Structured Query Language",
+  "script": "JSQL.js",
+  "version": "0.1",
+  "previousversions": [],
+  "description": "JavaScript Structured Query Language",
+  "authors": "Brian Shields",
+  "roll20userid": "235259",
+  "patreon": "https://www.patreon.com/bshields",
+  "useroptions": [],
+  "dependencies": [],
+  "modifies": {},
+  "conflicts": []
+}
