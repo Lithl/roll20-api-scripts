@@ -1,0 +1,19 @@
+{
+  "name": "D&D 4e Importer",
+  "script": "import4e.js",
+  "version": "0.2",
+  "previousversions": [],
+  "description": "TODO: Copy final description from README",
+  "authors": "Brian Shields",
+  "roll20userid": "235259",
+  "patreon": "https://www.patreon.com/bshields",
+  "useroptions": [],
+  "dependencies": ["splitArgs"],
+  "modifies": {
+    "character.bio": "read, write",
+    "character.name": "write",
+    "attribute.current": "read, write",
+    "attribute.max": "write"
+  },
+  "conflicts": []
+}
